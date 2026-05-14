@@ -8,11 +8,13 @@
 - Frontend: React + Vite
 - Database: PostgreSQL 16
 - Runtime: Node.js 22 + npm
+- GitHub sync: GitHub CLI
 
 当前机器没有管理员权限，Homebrew 无法安装，所以 Node.js 和 PostgreSQL 已安装为项目本地工具：
 
 - Node.js: `.tools/node-v22.21.1-darwin-arm64`
 - PostgreSQL: `.tools/postgresql-16`
+- GitHub CLI: `.tools/gh_2.92.0_macOS_arm64`
 - Python venv: `.venv`
 - PostgreSQL data: `.local/pgdata`
 
