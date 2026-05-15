@@ -25,6 +25,9 @@ urlpatterns = [
     path('', health, name='health'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
+    path('api/camps/', include('camps.urls')),
+    path('api/competitions/', include('competitions.urls')),
+    path('api/operations/', include('operations.urls')),
 ]
 
 if settings.DEBUG:

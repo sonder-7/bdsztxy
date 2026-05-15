@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   BarChart3,
@@ -13,8 +13,8 @@ import {
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
-import { apiLogin } from './lib/api'
-import type { ApiUser } from './lib/api'
+import { apiGetOperationsDashboard, apiLogin } from './lib/api'
+import type { ApiUser, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
   { role: '管理员', username: 'admin', password: 'admin123456' },
@@ -114,6 +114,8 @@ function App() {
   const [user, setUser] = useState<ApiUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null)
+  const [operations, setOperations] = useState<OperationsDashboard | null>(null)
+  const [operationsError, setOperationsError] = useState('')
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123456')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -124,6 +126,32 @@ function App() {
     () => judgeMatches.find((match) => match.id === selectedMatchId) ?? null,
     [selectedMatchId],
   )
+
+  useEffect(() => {
+    if (!token || !user || !['admin', 'staff'].includes(user.role)) {
+      setOperations(null)
+      setOperationsError('')
+      return
+    }
+
+    let isMounted = true
+    apiGetOperationsDashboard(token)
+      .then((data) => {
+        if (isMounted) {
+          setOperations(data)
+          setOperationsError('')
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setOperationsError(err instanceof Error ? err.message : '无法读取运营工作台数据。')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [token, user])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -161,6 +189,7 @@ function App() {
                   setUser(null)
                   setToken(null)
                   setSelectedMatchId(null)
+                  setOperations(null)
                 }}
               >
                 <LogOut data-icon="inline-start" />
@@ -175,6 +204,13 @@ function App() {
               selectedMatch={selectedMatch}
               onSelectMatch={setSelectedMatchId}
               onBack={() => setSelectedMatchId(null)}
+            />
+          ) : ['admin', 'staff'].includes(user.role) ? (
+            <StaffWorkspace
+              modules={modules}
+              operations={operations}
+              error={operationsError}
+              token={token}
             />
           ) : (
           <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
@@ -319,6 +355,168 @@ function App() {
         </Card>
       </div>
     </main>
+  )
+}
+
+function StaffWorkspace({
+  modules,
+  operations,
+  error,
+  token,
+}: {
+  modules: Array<{ title: string; description: string; icon: typeof ShieldCheck }>
+  operations: OperationsDashboard | null
+  error: string
+  token: string | null
+}) {
+  return (
+    <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
+      <aside className="rounded-lg border border-slate-200 bg-white p-4">
+        <nav className="flex flex-col gap-2">
+          {modules.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.title}
+                className="flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                <Icon className="size-4" />
+                {item.title}
+              </button>
+            )
+          })}
+        </nav>
+      </aside>
+
+      <section className="flex flex-col gap-5">
+        <div>
+          <h2 className="text-xl font-semibold tracking-normal">赛事运营工作台</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            当前先接入营期、队伍、积分赛轮次、会场、评委分配和对阵数据。
+          </p>
+        </div>
+
+        {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard label="当前营期" value={operations?.activeCamp?.name ?? '读取中'} />
+          <MetricCard label="队伍数" value={String(operations?.teams.length ?? 0)} />
+          <MetricCard label="评委数" value={String(operations?.judges.length ?? 0)} />
+          <MetricCard label="已录对阵" value={String(operations?.matches.length ?? 0)} />
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>积分赛轮次与辩题</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {operations?.rounds.length ? (
+                operations.rounds.map((round) => (
+                  <div key={round.id} className="rounded-md border border-slate-200 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="font-semibold">积分赛 {round.number}</p>
+                      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                        {round.match_count} 场比赛
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{round.topic || '暂未设置辩题'}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">暂无积分赛轮次。</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle>会场与评委分配</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3">
+                {operations?.venues.length ? (
+                  operations.venues.map((venue) => (
+                    <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
+                      <p className="font-semibold">{venue.name}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        评委：{venue.judge_names.join('、') || '暂未分配'}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">暂无会场。</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>对阵列表</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3">
+                {operations?.matches.length ? (
+                  operations.matches.map((match) => (
+                    <div key={match.id} className="rounded-md border border-slate-200 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+                        <span>积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场</span>
+                        <span>{match.starts_at.slice(0, 5)}</span>
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2">
+                          <p className="text-xs font-medium text-red-500">正方</p>
+                          <p className="mt-1 font-semibold text-red-900">{match.affirmative_team_name}</p>
+                        </div>
+                        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
+                          <p className="text-xs font-medium text-blue-500">反方</p>
+                          <p className="mt-1 font-semibold text-blue-900">{match.negative_team_name}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">暂无对阵。</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>队伍列表</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2">
+              {operations?.teams.map((team) => (
+                <div key={team.id} className="rounded-md border border-slate-200 px-4 py-3">
+                  <p className="font-semibold">{team.name}</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    教练：{team.coach_name} · 队员：{team.member_count} 人
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-5 text-xs text-slate-400">Token 已建立：{token?.slice(0, 8)}...</p>
+          </CardContent>
+        </Card>
+      </section>
+    </section>
+  )
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card>
+      <CardContent>
+        <p className="text-sm text-slate-500">{label}</p>
+        <p className="mt-2 text-2xl font-semibold tracking-normal">{value}</p>
+      </CardContent>
+    </Card>
   )
 }
 
