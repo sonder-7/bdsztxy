@@ -60,6 +60,58 @@ export type OperationsDashboard = {
   }>
 }
 
+export type JudgeMatch = {
+  id: number
+  round_number: number
+  round_label: string
+  topic: string
+  venue_name: string
+  sequence: number
+  starts_at: string
+  affirmative_team_name: string
+  negative_team_name: string
+  status: 'pending' | 'draft' | 'submitted'
+  positions: Array<{
+    id: number
+    side: 'affirmative' | 'negative'
+    position_number: number
+    label: string
+    speaker: string
+    coach_note: string
+  }>
+  ballot: null | {
+    affirmative_votes: number
+    negative_votes: number
+    submitted_at: string | null
+    position_scores: Array<{
+      position: number
+      score: string
+      speech_record: string
+      judge_feedback: string
+    }>
+    best_speaker_votes: Array<{
+      position: number
+      weight: number
+    }>
+  }
+}
+
+export type JudgeBallotPayload = {
+  affirmative_votes: number
+  negative_votes: number
+  submit: boolean
+  position_scores: Array<{
+    position: number
+    score: number
+    speech_record: string
+    judge_feedback: string
+  }>
+  best_speaker_votes: Array<{
+    position: number
+    weight: number
+  }>
+}
+
 type LoginResponse = {
   token: string
   user: ApiUser
@@ -97,6 +149,20 @@ export async function apiGetOperationsDashboard(token: string): Promise<Operatio
 
   if (!response.ok) {
     throw new Error('无法读取运营工作台数据。')
+  }
+
+  return response.json()
+}
+
+export async function apiGetJudgeMatches(token: string): Promise<JudgeMatch[]> {
+  const response = await fetch(`${API_BASE_URL}/api/competitions/judge/matches/`, {
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('无法读取评审任务。')
   }
 
   return response.json()
@@ -145,4 +211,8 @@ export async function apiCreateMatch(
   },
 ) {
   return apiWrite('/api/competitions/matches/', token, 'POST', payload)
+}
+
+export async function apiSubmitJudgeBallot(token: string, matchId: number, payload: JudgeBallotPayload) {
+  return apiWrite<JudgeMatch>(`/api/competitions/judge/matches/${matchId}/submit_ballot/`, token, 'POST', payload)
 }

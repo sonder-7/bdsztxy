@@ -16,11 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
 import {
   apiCreateMatch,
   apiCreateVenue,
+  apiGetJudgeMatches,
   apiGetOperationsDashboard,
   apiLogin,
+  apiSubmitJudgeBallot,
   apiUpdateRoundTopic,
 } from './lib/api'
-import type { ApiUser, OperationsDashboard } from './lib/api'
+import type { ApiUser, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
   { role: '管理员', username: 'admin', password: 'admin123456' },
@@ -55,67 +57,6 @@ const roleModules: Record<string, Array<{ title: string; description: string; ic
   ],
 }
 
-type JudgeMatch = {
-  id: number
-  round: string
-  venue: string
-  time: string
-  topic: string
-  affirmativeTeam: string
-  negativeTeam: string
-  status: 'pending' | 'draft' | 'submitted'
-  positions: Array<{
-    id: string
-    side: 'affirmative' | 'negative'
-    label: string
-    speaker: string
-    coachNote: string
-  }>
-}
-
-const judgeMatches: JudgeMatch[] = [
-  {
-    id: 1,
-    round: '积分赛一',
-    venue: 'A 会场',
-    time: '08:00-09:00',
-    topic: '人工智能是否会提升人类创造力',
-    affirmativeTeam: '赤焰队',
-    negativeTeam: '蓝锋队',
-    status: 'pending',
-    positions: [
-      { id: 'a1', side: 'affirmative', label: '正方一辩', speaker: '小鹿', coachNote: '重点观察开篇定义和论点清晰度。' },
-      { id: 'a2', side: 'affirmative', label: '正方二辩', speaker: '阿澈', coachNote: '攻防速度快，提醒记录反问质量。' },
-      { id: 'a3', side: 'affirmative', label: '正方三辩', speaker: '星河', coachNote: '擅长情绪表达，注意结构完整度。' },
-      { id: 'a4', side: 'affirmative', label: '正方四辩', speaker: '南乔', coachNote: '结辩经验少，关注总结层次。' },
-      { id: 'n1', side: 'negative', label: '反方一辩', speaker: '青柠', coachNote: '定义可能较新，注意与对方定义冲突。' },
-      { id: 'n2', side: 'negative', label: '反方二辩', speaker: '林深', coachNote: '擅长抓漏洞，关注交锋有效性。' },
-      { id: 'n3', side: 'negative', label: '反方三辩', speaker: '北辰', coachNote: '素材丰富，注意是否服务主线。' },
-      { id: 'n4', side: 'negative', label: '反方四辩', speaker: '云起', coachNote: '表达稳定，关注价值升华。' },
-    ],
-  },
-  {
-    id: 2,
-    round: '积分赛一',
-    venue: 'A 会场',
-    time: '09:00-10:00',
-    topic: '人工智能是否会提升人类创造力',
-    affirmativeTeam: '晨光队',
-    negativeTeam: '鲸落队',
-    status: 'draft',
-    positions: [
-      { id: 'a1', side: 'affirmative', label: '正方一辩', speaker: '予安', coachNote: '开篇较稳，注意观点生产。' },
-      { id: 'a2', side: 'affirmative', label: '正方二辩', speaker: '竹白', coachNote: '交锋主动，注意不要过快。' },
-      { id: 'a3', side: 'affirmative', label: '正方三辩', speaker: '知夏', coachNote: '论据使用需具体。' },
-      { id: 'a4', side: 'affirmative', label: '正方四辩', speaker: '温言', coachNote: '注意结辩时间分配。' },
-      { id: 'n1', side: 'negative', label: '反方一辩', speaker: '一川', coachNote: '定义清楚，但铺垫略长。' },
-      { id: 'n2', side: 'negative', label: '反方二辩', speaker: '清越', coachNote: '适合追问，关注问题质量。' },
-      { id: 'n3', side: 'negative', label: '反方三辩', speaker: '明烛', coachNote: '表达有张力。' },
-      { id: 'n4', side: 'negative', label: '反方四辩', speaker: '司南', coachNote: '价值总结能力强。' },
-    ],
-  },
-]
-
 function App() {
   const [user, setUser] = useState<ApiUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
@@ -123,6 +64,9 @@ function App() {
   const [operations, setOperations] = useState<OperationsDashboard | null>(null)
   const [operationsReloadKey, setOperationsReloadKey] = useState(0)
   const [operationsError, setOperationsError] = useState('')
+  const [judgeMatches, setJudgeMatches] = useState<JudgeMatch[]>([])
+  const [judgeReloadKey, setJudgeReloadKey] = useState(0)
+  const [judgeError, setJudgeError] = useState('')
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123456')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -131,7 +75,7 @@ function App() {
   const modules = useMemo(() => (user ? roleModules[user.role] ?? [] : []), [user])
   const selectedMatch = useMemo(
     () => judgeMatches.find((match) => match.id === selectedMatchId) ?? null,
-    [selectedMatchId],
+    [judgeMatches, selectedMatchId],
   )
 
   useEffect(() => {
@@ -159,6 +103,32 @@ function App() {
       isMounted = false
     }
   }, [operationsReloadKey, token, user])
+
+  useEffect(() => {
+    if (!token || !user || user.role !== 'judge') {
+      setJudgeMatches([])
+      setJudgeError('')
+      return
+    }
+
+    let isMounted = true
+    apiGetJudgeMatches(token)
+      .then((data) => {
+        if (isMounted) {
+          setJudgeMatches(data)
+          setJudgeError('')
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setJudgeError(err instanceof Error ? err.message : '无法读取评审任务。')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [judgeReloadKey, token, user])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -197,6 +167,7 @@ function App() {
                   setToken(null)
                   setSelectedMatchId(null)
                   setOperations(null)
+                  setJudgeMatches([])
                 }}
               >
                 <LogOut data-icon="inline-start" />
@@ -211,6 +182,9 @@ function App() {
               selectedMatch={selectedMatch}
               onSelectMatch={setSelectedMatchId}
               onBack={() => setSelectedMatchId(null)}
+              error={judgeError}
+              token={token}
+              onRefresh={() => setJudgeReloadKey((value) => value + 1)}
             />
           ) : ['admin', 'staff'].includes(user.role) ? (
             <StaffWorkspace
@@ -763,14 +737,20 @@ function JudgeWorkspace({
   selectedMatch,
   onSelectMatch,
   onBack,
+  error,
+  token,
+  onRefresh,
 }: {
   matches: JudgeMatch[]
   selectedMatch: JudgeMatch | null
   onSelectMatch: (id: number) => void
   onBack: () => void
+  error: string
+  token: string | null
+  onRefresh: () => void
 }) {
   if (selectedMatch) {
-    return <JudgeMatchDetail match={selectedMatch} onBack={onBack} />
+    return <JudgeMatchDetail match={selectedMatch} onBack={onBack} token={token} onRefresh={onRefresh} />
   }
 
   return (
@@ -780,8 +760,10 @@ function JudgeWorkspace({
         <p className="mt-2 text-sm text-slate-500">进入比赛后完成发言记录、评委反馈、辩位打分、最终投票和最佳辩手票。</p>
       </div>
 
+      {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+
       <div className="grid gap-4">
-        {matches.map((match) => (
+        {matches.length ? matches.map((match) => (
           <button
             key={match.id}
             type="button"
@@ -791,11 +773,11 @@ function JudgeWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                  <span>{match.round}</span>
-                  <span>{match.venue}</span>
+                  <span>{match.round_label}</span>
+                  <span>{match.venue_name}</span>
                   <span className="inline-flex items-center gap-1">
                     <Clock className="size-4" />
-                    {match.time}
+                    {match.starts_at.slice(0, 5)}
                   </span>
                 </div>
                 <p className="mt-2 text-base font-semibold">{match.topic}</p>
@@ -807,21 +789,131 @@ function JudgeWorkspace({
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-md border border-red-100 bg-red-50 px-4 py-3">
                 <p className="text-xs font-medium text-red-500">正方</p>
-                <p className="mt-1 font-semibold text-red-900">{match.affirmativeTeam}</p>
+                <p className="mt-1 font-semibold text-red-900">{match.affirmative_team_name}</p>
               </div>
               <div className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3">
                 <p className="text-xs font-medium text-blue-500">反方</p>
-                <p className="mt-1 font-semibold text-blue-900">{match.negativeTeam}</p>
+                <p className="mt-1 font-semibold text-blue-900">{match.negative_team_name}</p>
               </div>
             </div>
           </button>
-        ))}
+        )) : (
+          <Card>
+            <CardContent>
+              <p className="text-sm text-slate-500">当前没有分配给你的评审比赛。</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </section>
   )
 }
 
-function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => void }) {
+function JudgeMatchDetail({
+  match,
+  onBack,
+  token,
+  onRefresh,
+}: {
+  match: JudgeMatch
+  onBack: () => void
+  token: string | null
+  onRefresh: () => void
+}) {
+  const [positionForms, setPositionForms] = useState<Record<number, { score: string; speechRecord: string; judgeFeedback: string }>>({})
+  const [affirmativeVotes, setAffirmativeVotes] = useState('0')
+  const [negativeVotes, setNegativeVotes] = useState('3')
+  const [bestVotes, setBestVotes] = useState<Record<number, string>>({ 3: '', 2: '', 1: '' })
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    const scoresByPosition = new Map(match.ballot?.position_scores.map((score) => [score.position, score]) ?? [])
+    const votesByWeight = new Map(match.ballot?.best_speaker_votes.map((vote) => [vote.weight, String(vote.position)]) ?? [])
+    const nextPositionForms = Object.fromEntries(
+      match.positions.map((position) => {
+        const existingScore = scoresByPosition.get(position.id)
+        return [
+          position.id,
+          {
+            score: existingScore?.score ?? '',
+            speechRecord: existingScore?.speech_record ?? '',
+            judgeFeedback: existingScore?.judge_feedback ?? '',
+          },
+        ]
+      }),
+    )
+
+    setPositionForms(nextPositionForms)
+    setAffirmativeVotes(String(match.ballot?.affirmative_votes ?? 0))
+    setNegativeVotes(String(match.ballot?.negative_votes ?? 3))
+    setBestVotes({
+      3: votesByWeight.get(3) ?? '',
+      2: votesByWeight.get(2) ?? '',
+      1: votesByWeight.get(1) ?? '',
+    })
+    setMessage('')
+    setError('')
+  }, [match])
+
+  function updatePosition(positionId: number, field: 'score' | 'speechRecord' | 'judgeFeedback', value: string) {
+    setPositionForms((current) => ({
+      ...current,
+      [positionId]: {
+        ...current[positionId],
+        [field]: value,
+      },
+    }))
+  }
+
+  async function saveBallot(submit: boolean) {
+    if (!token) return
+    const selectedBestPositions = [bestVotes[3], bestVotes[2], bestVotes[1]].filter(Boolean)
+
+    if (Number(affirmativeVotes) + Number(negativeVotes) !== 3) {
+      setError('最终投票正反方合计必须是 3 票。')
+      return
+    }
+    if (selectedBestPositions.length !== 3 || new Set(selectedBestPositions).size !== 3) {
+      setError('最佳辩手 3/2/1 票必须各选一名，且不能重复。')
+      return
+    }
+    if (match.positions.some((position) => positionForms[position.id]?.score === '')) {
+      setError('请为本场所有辩位填写 0-9 分。')
+      return
+    }
+
+    const payload: JudgeBallotPayload = {
+      affirmative_votes: Number(affirmativeVotes),
+      negative_votes: Number(negativeVotes),
+      submit,
+      position_scores: match.positions.map((position) => ({
+        position: position.id,
+        score: Number(positionForms[position.id].score),
+        speech_record: positionForms[position.id].speechRecord,
+        judge_feedback: positionForms[position.id].judgeFeedback,
+      })),
+      best_speaker_votes: [3, 2, 1].map((weight) => ({
+        position: Number(bestVotes[weight]),
+        weight,
+      })),
+    }
+
+    setIsSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      await apiSubmitJudgeBallot(token, match.id, payload)
+      setMessage(submit ? '评审记录已提交。' : '草稿已保存。')
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请检查输入。')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <section className="flex flex-1 flex-col gap-5 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -832,20 +924,23 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
           </Button>
           <h2 className="mt-4 text-xl font-semibold tracking-normal">{match.topic}</h2>
           <p className="mt-2 text-sm text-slate-500">
-            {match.round} · {match.venue} · {match.time}
+            {match.round_label} · {match.venue_name} · {match.starts_at.slice(0, 5)}
           </p>
         </div>
         <div className="grid min-w-80 gap-3 sm:grid-cols-2">
           <div className="rounded-md border border-red-100 bg-red-50 px-4 py-3">
             <p className="text-xs font-medium text-red-500">正方</p>
-            <p className="mt-1 font-semibold text-red-900">{match.affirmativeTeam}</p>
+            <p className="mt-1 font-semibold text-red-900">{match.affirmative_team_name}</p>
           </div>
           <div className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3">
             <p className="text-xs font-medium text-blue-500">反方</p>
-            <p className="mt-1 font-semibold text-blue-900">{match.negativeTeam}</p>
+            <p className="mt-1 font-semibold text-blue-900">{match.negative_team_name}</p>
           </div>
         </div>
       </div>
+
+      {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+      {message ? <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
 
       <Card>
         <CardHeader>
@@ -867,7 +962,7 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
                     <p className={position.side === 'affirmative' ? 'text-sm font-semibold text-red-700' : 'text-sm font-semibold text-blue-700'}>
                       {position.label} · {position.speaker}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">教练备注：{position.coachNote}</p>
+                    <p className="mt-1 text-xs text-slate-500">教练备注：{position.coach_note || '暂无备注'}</p>
                   </div>
                   <label className="flex items-center gap-2 text-sm font-medium">
                     分数
@@ -878,17 +973,27 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
                       step="0.5"
                       type="number"
                       placeholder="0-9"
+                      value={positionForms[position.id]?.score ?? ''}
+                      onChange={(event) => updatePosition(position.id, 'score', event.target.value)}
                     />
                   </label>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <label className="flex flex-col gap-2 text-sm font-medium">
                     发言记录
-                    <textarea className="min-h-28 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400" />
+                    <textarea
+                      className="min-h-28 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                      value={positionForms[position.id]?.speechRecord ?? ''}
+                      onChange={(event) => updatePosition(position.id, 'speechRecord', event.target.value)}
+                    />
                   </label>
                   <label className="flex flex-col gap-2 text-sm font-medium">
                     评委反馈
-                    <textarea className="min-h-28 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400" />
+                    <textarea
+                      className="min-h-28 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                      value={positionForms[position.id]?.judgeFeedback ?? ''}
+                      onChange={(event) => updatePosition(position.id, 'judgeFeedback', event.target.value)}
+                    />
                   </label>
                 </div>
               </div>
@@ -906,11 +1011,25 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm font-medium text-red-700">
                 正方票数
-                <input className="h-10 rounded-md border border-red-100 px-3 text-slate-950 outline-none focus:border-red-300" max="3" min="0" type="number" />
+                <input
+                  className="h-10 rounded-md border border-red-100 px-3 text-slate-950 outline-none focus:border-red-300"
+                  max="3"
+                  min="0"
+                  type="number"
+                  value={affirmativeVotes}
+                  onChange={(event) => setAffirmativeVotes(event.target.value)}
+                />
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-blue-700">
                 反方票数
-                <input className="h-10 rounded-md border border-blue-100 px-3 text-slate-950 outline-none focus:border-blue-300" max="3" min="0" type="number" />
+                <input
+                  className="h-10 rounded-md border border-blue-100 px-3 text-slate-950 outline-none focus:border-blue-300"
+                  max="3"
+                  min="0"
+                  type="number"
+                  value={negativeVotes}
+                  onChange={(event) => setNegativeVotes(event.target.value)}
+                />
               </label>
             </div>
             <p className="mt-3 text-xs text-slate-500">每位评委每场共 3 票，分配给正反方。</p>
@@ -926,7 +1045,11 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
               {[3, 2, 1].map((weight) => (
                 <label key={weight} className="flex flex-col gap-2 text-sm font-medium">
                   {weight} 票
-                  <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400">
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                    value={bestVotes[weight] ?? ''}
+                    onChange={(event) => setBestVotes((current) => ({ ...current, [weight]: event.target.value }))}
+                  >
                     <option value="">选择辩位</option>
                     {match.positions.map((position) => (
                       <option key={position.id} value={position.id}>
@@ -942,8 +1065,8 @@ function JudgeMatchDetail({ match, onBack }: { match: JudgeMatch; onBack: () => 
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button type="button" variant="outline">保存草稿</Button>
-        <Button type="button">提交评审记录</Button>
+        <Button type="button" variant="outline" disabled={isSaving} onClick={() => saveBallot(false)}>保存草稿</Button>
+        <Button type="button" disabled={isSaving} onClick={() => saveBallot(true)}>提交评审记录</Button>
       </div>
     </section>
   )
