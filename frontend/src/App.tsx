@@ -13,7 +13,13 @@ import {
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
-import { apiGetOperationsDashboard, apiLogin } from './lib/api'
+import {
+  apiCreateMatch,
+  apiCreateVenue,
+  apiGetOperationsDashboard,
+  apiLogin,
+  apiUpdateRoundTopic,
+} from './lib/api'
 import type { ApiUser, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
@@ -115,6 +121,7 @@ function App() {
   const [token, setToken] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null)
   const [operations, setOperations] = useState<OperationsDashboard | null>(null)
+  const [operationsReloadKey, setOperationsReloadKey] = useState(0)
   const [operationsError, setOperationsError] = useState('')
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123456')
@@ -151,7 +158,7 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [token, user])
+  }, [operationsReloadKey, token, user])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -211,6 +218,7 @@ function App() {
               operations={operations}
               error={operationsError}
               token={token}
+              onRefresh={() => setOperationsReloadKey((value) => value + 1)}
             />
           ) : (
           <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
@@ -363,12 +371,113 @@ function StaffWorkspace({
   operations,
   error,
   token,
+  onRefresh,
 }: {
   modules: Array<{ title: string; description: string; icon: typeof ShieldCheck }>
   operations: OperationsDashboard | null
   error: string
   token: string | null
+  onRefresh: () => void
 }) {
+  const [topicRoundId, setTopicRoundId] = useState('')
+  const [topic, setTopic] = useState('')
+  const [venueRoundId, setVenueRoundId] = useState('')
+  const [venueName, setVenueName] = useState('')
+  const [venueJudgeIds, setVenueJudgeIds] = useState<string[]>([])
+  const [matchRoundId, setMatchRoundId] = useState('')
+  const [matchVenueId, setMatchVenueId] = useState('')
+  const [matchSequence, setMatchSequence] = useState('')
+  const [matchTime, setMatchTime] = useState('10:00')
+  const [affirmativeTeamId, setAffirmativeTeamId] = useState('')
+  const [negativeTeamId, setNegativeTeamId] = useState('')
+  const [formMessage, setFormMessage] = useState('')
+  const [formError, setFormError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
+  const venuesForSelectedRound = operations?.venues.filter(
+    (venue) => !matchRoundId || String(venue.integral_round) === matchRoundId,
+  ) ?? []
+
+  useEffect(() => {
+    if (!operations) return
+    const firstRound = operations.rounds[0]
+    const firstVenue = operations.venues[0]
+    const firstTeam = operations.teams[0]
+    const secondTeam = operations.teams[1]
+
+    if (firstRound && !topicRoundId) {
+      setTopicRoundId(String(firstRound.id))
+      setTopic(firstRound.topic)
+    }
+    if (firstRound && !venueRoundId) setVenueRoundId(String(firstRound.id))
+    if (firstRound && !matchRoundId) setMatchRoundId(String(firstRound.id))
+    if (firstVenue && !matchVenueId) setMatchVenueId(String(firstVenue.id))
+    if (!matchSequence) setMatchSequence(String((operations.matches.length || 0) + 1))
+    if (firstTeam && !affirmativeTeamId) setAffirmativeTeamId(String(firstTeam.id))
+    if (secondTeam && !negativeTeamId) setNegativeTeamId(String(secondTeam.id))
+  }, [affirmativeTeamId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, topicRoundId, venueRoundId])
+
+  useEffect(() => {
+    if (selectedTopicRound) setTopic(selectedTopicRound.topic)
+  }, [selectedTopicRound])
+
+  async function submitTopic(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !topicRoundId) return
+    await save(async () => {
+      await apiUpdateRoundTopic(token, Number(topicRoundId), topic)
+      return '辩题已更新。'
+    })
+  }
+
+  async function submitVenue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !venueRoundId) return
+    await save(async () => {
+      await apiCreateVenue(token, Number(venueRoundId), venueName, venueJudgeIds.map(Number))
+      setVenueName('')
+      setVenueJudgeIds([])
+      return '会场已创建并完成评委分配。'
+    })
+  }
+
+  async function submitMatch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !matchRoundId || !matchVenueId || !affirmativeTeamId || !negativeTeamId) return
+    if (affirmativeTeamId === negativeTeamId) {
+      setFormError('正反方不能选择同一支队伍。')
+      return
+    }
+    await save(async () => {
+      await apiCreateMatch(token, {
+        integral_round: Number(matchRoundId),
+        venue: Number(matchVenueId),
+        sequence: Number(matchSequence),
+        starts_at: matchTime,
+        affirmative_team: Number(affirmativeTeamId),
+        negative_team: Number(negativeTeamId),
+      })
+      setMatchSequence(String((operations?.matches.length || 0) + 2))
+      return '对阵已创建。'
+    })
+  }
+
+  async function save(action: () => Promise<string>) {
+    setIsSaving(true)
+    setFormError('')
+    setFormMessage('')
+    try {
+      const message = await action()
+      setFormMessage(message)
+      onRefresh()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : '保存失败，请稍后重试。')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
       <aside className="rounded-lg border border-slate-200 bg-white p-4">
@@ -397,6 +506,8 @@ function StaffWorkspace({
         </div>
 
         {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {formError ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p> : null}
+        {formMessage ? <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{formMessage}</p> : null}
 
         <div className="grid gap-4 md:grid-cols-4">
           <MetricCard label="当前营期" value={operations?.activeCamp?.name ?? '读取中'} />
@@ -407,9 +518,27 @@ function StaffWorkspace({
 
         <Card>
           <CardHeader>
-            <CardTitle>积分赛轮次与辩题</CardTitle>
+            <CardTitle>设置辩题</CardTitle>
           </CardHeader>
           <CardContent>
+            <form className="mb-5 grid gap-3 md:grid-cols-[180px_1fr_auto]" onSubmit={submitTopic}>
+              <select
+                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                value={topicRoundId}
+                onChange={(event) => setTopicRoundId(event.target.value)}
+              >
+                {operations?.rounds.map((round) => (
+                  <option key={round.id} value={round.id}>积分赛 {round.number}</option>
+                ))}
+              </select>
+              <input
+                className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                placeholder="输入本轮辩题"
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+              />
+              <Button type="submit" disabled={isSaving || !topicRoundId}>保存辩题</Button>
+            </form>
             <div className="grid gap-3">
               {operations?.rounds.length ? (
                 operations.rounds.map((round) => (
@@ -433,9 +562,50 @@ function StaffWorkspace({
         <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
           <Card>
             <CardHeader>
-              <CardTitle>会场与评委分配</CardTitle>
+              <CardTitle>创建会场与评委分配</CardTitle>
             </CardHeader>
             <CardContent>
+              <form className="mb-5 grid gap-3" onSubmit={submitVenue}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                    value={venueRoundId}
+                    onChange={(event) => setVenueRoundId(event.target.value)}
+                  >
+                    {operations?.rounds.map((round) => (
+                      <option key={round.id} value={round.id}>积分赛 {round.number}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    placeholder="会场名称，如 B 会场"
+                    value={venueName}
+                    onChange={(event) => setVenueName(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <p className="text-sm font-medium">分配评委</p>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {operations?.judges.map((judge) => (
+                      <label key={judge.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                        <input
+                          checked={venueJudgeIds.includes(String(judge.id))}
+                          type="checkbox"
+                          onChange={(event) => {
+                            setVenueJudgeIds((current) =>
+                              event.target.checked
+                                ? [...current, String(judge.id)]
+                                : current.filter((id) => id !== String(judge.id)),
+                            )
+                          }}
+                        />
+                        {judge.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <Button type="submit" disabled={isSaving || !venueName || !venueRoundId}>创建会场</Button>
+              </form>
               <div className="grid gap-3">
                 {operations?.venues.length ? (
                   operations.venues.map((venue) => (
@@ -455,9 +625,77 @@ function StaffWorkspace({
 
           <Card>
             <CardHeader>
-              <CardTitle>对阵列表</CardTitle>
+              <CardTitle>录入对阵</CardTitle>
             </CardHeader>
             <CardContent>
+              <form className="mb-5 grid gap-3" onSubmit={submitMatch}>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                    value={matchRoundId}
+                    onChange={(event) => {
+                      setMatchRoundId(event.target.value)
+                      setMatchVenueId('')
+                    }}
+                  >
+                    {operations?.rounds.map((round) => (
+                      <option key={round.id} value={round.id}>积分赛 {round.number}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                    value={matchVenueId}
+                    onChange={(event) => setMatchVenueId(event.target.value)}
+                  >
+                    <option value="">选择会场</option>
+                    {venuesForSelectedRound.map((venue) => (
+                      <option key={venue.id} value={venue.id}>{venue.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    min="1"
+                    max="5"
+                    placeholder="场次"
+                    type="number"
+                    value={matchSequence}
+                    onChange={(event) => setMatchSequence(event.target.value)}
+                  />
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    type="time"
+                    value={matchTime}
+                    onChange={(event) => setMatchTime(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm font-medium text-red-700">
+                    正方队伍
+                    <select
+                      className="h-10 rounded-md border border-red-100 bg-white px-3 text-sm text-slate-950 outline-none focus:border-red-300"
+                      value={affirmativeTeamId}
+                      onChange={(event) => setAffirmativeTeamId(event.target.value)}
+                    >
+                      {operations?.teams.map((team) => (
+                        <option key={team.id} value={team.id}>{team.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm font-medium text-blue-700">
+                    反方队伍
+                    <select
+                      className="h-10 rounded-md border border-blue-100 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-300"
+                      value={negativeTeamId}
+                      onChange={(event) => setNegativeTeamId(event.target.value)}
+                    >
+                      {operations?.teams.map((team) => (
+                        <option key={team.id} value={team.id}>{team.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <Button type="submit" disabled={isSaving || !matchVenueId || !matchSequence}>创建对阵</Button>
+              </form>
               <div className="grid gap-3">
                 {operations?.matches.length ? (
                   operations.matches.map((match) => (

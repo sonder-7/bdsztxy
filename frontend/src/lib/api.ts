@@ -101,3 +101,48 @@ export async function apiGetOperationsDashboard(token: string): Promise<Operatio
 
   return response.json()
 }
+
+async function apiWrite<T>(path: string, token: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Token ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    const details = payload ? JSON.stringify(payload) : ''
+    throw new Error(details || '保存失败，请检查输入。')
+  }
+
+  return response.json()
+}
+
+export async function apiUpdateRoundTopic(token: string, roundId: number, topic: string) {
+  return apiWrite(`/api/competitions/rounds/${roundId}/`, token, 'PATCH', { topic })
+}
+
+export async function apiCreateVenue(token: string, integralRound: number, name: string, judges: number[]) {
+  return apiWrite('/api/competitions/venues/', token, 'POST', {
+    integral_round: integralRound,
+    name,
+    judges,
+  })
+}
+
+export async function apiCreateMatch(
+  token: string,
+  payload: {
+    integral_round: number
+    venue: number
+    sequence: number
+    starts_at: string
+    affirmative_team: number
+    negative_team: number
+  },
+) {
+  return apiWrite('/api/competitions/matches/', token, 'POST', payload)
+}
