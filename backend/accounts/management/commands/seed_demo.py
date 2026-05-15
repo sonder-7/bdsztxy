@@ -72,45 +72,62 @@ class Command(BaseCommand):
                 )
                 enrollments_by_team[team_name].append(enrollment)
 
-        integral_round, _ = IntegralRound.objects.update_or_create(
-            camp=camp,
-            number=1,
-            defaults={"topic": "人工智能是否会提升人类创造力"},
-        )
+        round_topics = {
+            1: "人工智能是否会提升人类创造力",
+            2: "成年人是否更应该追求稳定",
+            3: "表达能力是否比专业能力更影响职场发展",
+        }
+        round_match_specs = {
+            1: [
+                (1, "08:00", teams[0], teams[1]),
+                (2, "09:00", teams[2], teams[3]),
+            ],
+            2: [
+                (1, "08:00", teams[0], teams[2]),
+                (2, "09:00", teams[1], teams[3]),
+            ],
+            3: [
+                (1, "08:00", teams[0], teams[3]),
+                (2, "09:00", teams[1], teams[2]),
+            ],
+        }
 
-        venue, _ = CompetitionVenue.objects.update_or_create(integral_round=integral_round, name="A 会场")
-        venue.judges.set(judges)
-
-        match_specs = [
-            (1, "08:00", teams[0], teams[1]),
-            (2, "09:00", teams[2], teams[3]),
-        ]
-        for sequence, starts_at, affirmative_team, negative_team in match_specs:
-            match, _ = Match.objects.update_or_create(
-                integral_round=integral_round,
-                venue=venue,
-                sequence=sequence,
-                defaults={
-                    "starts_at": starts_at,
-                    "affirmative_team": affirmative_team,
-                    "negative_team": negative_team,
-                },
+        for round_number in [1, 2, 3]:
+            integral_round, _ = IntegralRound.objects.update_or_create(
+                camp=camp,
+                number=round_number,
+                defaults={"topic": round_topics[round_number]},
             )
-            affirmative_enrollments = enrollments_by_team[affirmative_team.name][:4]
-            negative_enrollments = enrollments_by_team[negative_team.name][:4]
-            for index, enrollment in enumerate(affirmative_enrollments, start=1):
-                DebatePosition.objects.update_or_create(
-                    match=match,
-                    side=DebateSide.AFFIRMATIVE,
-                    position_number=index,
-                    defaults={"enrollment": enrollment, "coach_note": "示例教练备注，后续由教练端录入。"},
+
+            venue, _ = CompetitionVenue.objects.update_or_create(integral_round=integral_round, name="A 会场")
+            venue.judges.set(judges)
+
+            for sequence, starts_at, affirmative_team, negative_team in round_match_specs[round_number]:
+                match, _ = Match.objects.update_or_create(
+                    integral_round=integral_round,
+                    venue=venue,
+                    sequence=sequence,
+                    defaults={
+                        "starts_at": starts_at,
+                        "affirmative_team": affirmative_team,
+                        "negative_team": negative_team,
+                    },
                 )
-            for index, enrollment in enumerate(negative_enrollments, start=1):
-                DebatePosition.objects.update_or_create(
-                    match=match,
-                    side=DebateSide.NEGATIVE,
-                    position_number=index,
-                    defaults={"enrollment": enrollment, "coach_note": "示例教练备注，后续由教练端录入。"},
-                )
+                affirmative_enrollments = enrollments_by_team[affirmative_team.name][:4]
+                negative_enrollments = enrollments_by_team[negative_team.name][:4]
+                for index, enrollment in enumerate(affirmative_enrollments, start=1):
+                    DebatePosition.objects.update_or_create(
+                        match=match,
+                        side=DebateSide.AFFIRMATIVE,
+                        position_number=index,
+                        defaults={"enrollment": enrollment, "coach_note": "示例教练备注，后续由教练端录入。"},
+                    )
+                for index, enrollment in enumerate(negative_enrollments, start=1):
+                    DebatePosition.objects.update_or_create(
+                        match=match,
+                        side=DebateSide.NEGATIVE,
+                        position_number=index,
+                        defaults={"enrollment": enrollment, "coach_note": "示例教练备注，后续由教练端录入。"},
+                    )
 
         self.stdout.write(self.style.SUCCESS("Seeded demo camp, teams, judges, venues, matches, and positions."))

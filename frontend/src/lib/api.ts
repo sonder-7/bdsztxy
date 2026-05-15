@@ -58,6 +58,48 @@ export type OperationsDashboard = {
     note: string
     is_active: boolean
   }>
+  matchReviews: Array<{
+    match: number
+    round_number: number
+    venue_name: string
+    sequence: number
+    starts_at: string
+    topic: string
+    affirmative_team: number
+    affirmative_team_name: string
+    negative_team: number
+    negative_team_name: string
+    assigned_judge_count: number
+    assigned_judge_names: string[]
+    submitted_ballot_count: number
+    draft_ballot_count: number
+    pending_ballot_count: number
+    expected_score_count: number
+    submitted_score_count: number
+    is_complete: boolean
+    affirmative_votes: number
+    negative_votes: number
+    affirmative_position_score: number
+    negative_position_score: number
+    affirmative_points: number
+    negative_points: number
+    best_speaker_totals: Array<{
+      position: number
+      label: string
+      speaker: string
+      side: 'affirmative' | 'negative'
+      votes: number
+    }>
+  }>
+  teamRankings: Array<{
+    team: number
+    team_name: string
+    round_scores: Array<{
+      round_number: number
+      score: number
+    }>
+    total: number
+  }>
 }
 
 export type JudgeMatch = {

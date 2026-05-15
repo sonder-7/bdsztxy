@@ -700,6 +700,147 @@ function StaffWorkspace({
 
         <Card>
           <CardHeader>
+            <CardTitle>积分核对与赛事记录完成情况</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4">
+              {operations?.matchReviews.length ? (
+                operations.matchReviews.map((review) => (
+                  <div key={review.match} className="rounded-lg border border-slate-200 px-4 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">
+                          积分赛 {review.round_number} · {review.venue_name} · 第 {review.sequence} 场 · {review.starts_at}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">{review.topic || '暂未设置辩题'}</p>
+                      </div>
+                      <span
+                        className={
+                          review.is_complete
+                            ? 'rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700'
+                            : 'rounded-md bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700'
+                        }
+                      >
+                        {review.is_complete ? '已完成' : '待核对'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">评委提交</p>
+                        <p className="mt-1 font-semibold">
+                          {review.submitted_ballot_count}/{review.assigned_judge_count}
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">草稿 / 未提交</p>
+                        <p className="mt-1 font-semibold">
+                          {review.draft_ballot_count} / {review.pending_ballot_count}
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">辩位分录入</p>
+                        <p className="mt-1 font-semibold">
+                          {review.submitted_score_count}/{review.expected_score_count}
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">评委</p>
+                        <p className="mt-1 truncate text-sm font-semibold">
+                          {review.assigned_judge_names.join('、') || '暂未分配'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md border border-red-100 bg-red-50 px-4 py-3">
+                        <p className="text-xs font-medium text-red-500">正方</p>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                          <p className="font-semibold text-red-900">{review.affirmative_team_name}</p>
+                          <p className="text-lg font-semibold text-red-900">{review.affirmative_points.toFixed(2)} 分</p>
+                        </div>
+                        <p className="mt-2 text-xs text-red-800">
+                          辩位分 {review.affirmative_position_score.toFixed(1)} × 0.15 + 投票 {review.affirmative_votes}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3">
+                        <p className="text-xs font-medium text-blue-500">反方</p>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                          <p className="font-semibold text-blue-900">{review.negative_team_name}</p>
+                          <p className="text-lg font-semibold text-blue-900">{review.negative_points.toFixed(2)} 分</p>
+                        </div>
+                        <p className="mt-2 text-xs text-blue-800">
+                          辩位分 {review.negative_position_score.toFixed(1)} × 0.15 + 投票 {review.negative_votes}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-md bg-slate-50 px-3 py-2">
+                      <p className="text-xs font-medium text-slate-500">最佳辩手票汇总</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {review.best_speaker_totals.length ? (
+                          review.best_speaker_totals.map((speaker) => (
+                            <span
+                              key={speaker.position}
+                              className={
+                                speaker.side === 'affirmative'
+                                  ? 'rounded-md bg-red-100 px-2 py-1 text-xs font-medium text-red-800'
+                                  : 'rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800'
+                              }
+                            >
+                              {speaker.label} · {speaker.speaker} · {speaker.votes} 票
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-sm text-slate-500">暂无已提交最佳辩手票。</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">暂无可核对的比赛。</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>队伍积分榜</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2 pr-4 font-medium">排名</th>
+                    <th className="py-2 pr-4 font-medium">队伍</th>
+                    <th className="py-2 pr-4 font-medium">积分赛 1</th>
+                    <th className="py-2 pr-4 font-medium">积分赛 2</th>
+                    <th className="py-2 pr-4 font-medium">积分赛 3</th>
+                    <th className="py-2 pr-4 font-medium">总分</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operations?.teamRankings.map((team, index) => (
+                    <tr key={team.team} className="border-b border-slate-100">
+                      <td className="py-3 pr-4 font-semibold">{index + 1}</td>
+                      <td className="py-3 pr-4 font-semibold">{team.team_name}</td>
+                      {team.round_scores.map((round) => (
+                        <td key={round.round_number} className="py-3 pr-4">{round.score.toFixed(2)}</td>
+                      ))}
+                      <td className="py-3 pr-4 font-semibold">{team.total.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>队伍列表</CardTitle>
           </CardHeader>
           <CardContent>
