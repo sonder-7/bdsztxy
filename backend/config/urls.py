@@ -19,7 +19,10 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from .views import health
+
 urlpatterns = [
+    path('', health, name='health'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
 ]
