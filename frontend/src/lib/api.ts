@@ -616,6 +616,10 @@ export async function apiCreateVenue(token: string, integralRound: number, name:
   })
 }
 
+export async function apiUpdateVenue(token: string, venueId: number, payload: Partial<{ name: string; judges: number[] }>) {
+  return apiWrite(`/api/competitions/venues/${venueId}/`, token, 'PATCH', payload)
+}
+
 export async function apiCreateAssessmentVenue(token: string, camp: number, name: string, coaches: number[]) {
   return apiWrite('/api/assessments/venues/', token, 'POST', { camp, name, coaches })
 }
@@ -636,6 +640,20 @@ export async function apiCreateMatch(
   },
 ) {
   return apiWrite('/api/competitions/matches/', token, 'POST', payload)
+}
+
+export async function apiUpdateMatch(
+  token: string,
+  matchId: number,
+  payload: Partial<{
+    venue: number
+    sequence: number
+    starts_at: string
+    affirmative_team: number
+    negative_team: number
+  }>,
+) {
+  return apiWrite(`/api/competitions/matches/${matchId}/`, token, 'PATCH', payload)
 }
 
 export async function apiVerifyMatch(

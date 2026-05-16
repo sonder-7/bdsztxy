@@ -36,9 +36,11 @@ import {
   apiSubmitGraduationEvaluation,
   apiSubmitJudgeBallot,
   apiUpdateEnrollment,
+  apiUpdateMatch,
   apiUpdateRoundTopic,
   apiUpdateTeam,
   apiUpdateUserAccount,
+  apiUpdateVenue,
   apiVerifyMatch,
 } from './lib/api'
 import type { ApiUser, CoachAssessmentDashboard, CoachDashboard, EnrollmentImportPreview, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
@@ -452,15 +454,16 @@ function StaffWorkspace({
 }) {
   const [topicRoundId, setTopicRoundId] = useState('')
   const [topic, setTopic] = useState('')
-  const [venueRoundId, setVenueRoundId] = useState('')
-  const [venueName, setVenueName] = useState('')
-  const [venueJudgeIds, setVenueJudgeIds] = useState<string[]>([])
-  const [matchRoundId, setMatchRoundId] = useState('')
-  const [matchVenueId, setMatchVenueId] = useState('')
-  const [matchSequence, setMatchSequence] = useState('')
-  const [matchTime, setMatchTime] = useState('10:00')
-  const [affirmativeTeamId, setAffirmativeTeamId] = useState('')
-  const [negativeTeamId, setNegativeTeamId] = useState('')
+  const [scheduleRoundNumber, setScheduleRoundNumber] = useState('1')
+  const [venueNameDrafts, setVenueNameDrafts] = useState<Record<number, string>>({})
+  const [editingVenue, setEditingVenue] = useState<{ id: number; name: string; judgeIds: string[] } | null>(null)
+  const [editingMatch, setEditingMatch] = useState<null | {
+    id: number | null
+    venueId: number
+    sequence: number
+    affirmativeTeamId: string
+    negativeTeamId: string
+  }>(null)
   const [campName, setCampName] = useState('')
   const [campSeason, setCampSeason] = useState('')
   const [campStartsOn, setCampStartsOn] = useState('')
@@ -480,7 +483,6 @@ function StaffWorkspace({
   const [activeSection, setActiveSection] = useState<StaffSectionKey>('overview')
   const [studentSearch, setStudentSearch] = useState('')
   const [teamSearch, setTeamSearch] = useState('')
-  const [scheduleRoundFilter, setScheduleRoundFilter] = useState('all')
   const [reviewRoundFilter, setReviewRoundFilter] = useState('all')
   const [selectedReviewId, setSelectedReviewId] = useState<number | null>(null)
   const [verificationNote, setVerificationNote] = useState('')
@@ -494,9 +496,7 @@ function StaffWorkspace({
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
   const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
-  const venuesForSelectedRound = operations?.venues.filter(
-    (venue) => !matchRoundId || String(venue.integral_round) === matchRoundId,
-  ) ?? []
+  const selectedScheduleRound = operations?.rounds.find((round) => String(round.number) === scheduleRoundNumber)
   const visibleSections = staffSections.filter((section) => isAdmin || !section.adminOnly)
   const currentSection = visibleSections.find((section) => section.key === activeSection) ?? visibleSections[0]
   const globalSections = visibleSections.filter((section) => section.group === 'global')
@@ -527,14 +527,31 @@ function StaffWorkspace({
       if (!keyword) return true
       return [team.name, team.coach_name].some((value) => value.toLowerCase().includes(keyword))
     }) ?? []
-  const visibleMatches =
-    operations?.matches.filter((match) => scheduleRoundFilter === 'all' || String(match.round_number) === scheduleRoundFilter) ?? []
-  const visibleVenues =
-    operations?.venues.filter((venue) => {
-      if (scheduleRoundFilter === 'all') return true
-      const round = operations?.rounds.find((item) => item.id === venue.integral_round)
-      return String(round?.number) === scheduleRoundFilter
-    }) ?? []
+  const requiredVenueCount = operations ? Math.max(1, Math.min(4, Math.ceil(operations.teams.length / 5))) : 1
+  const selectedRoundVenues = selectedScheduleRound
+    ? operations?.venues.filter((venue) => venue.integral_round === selectedScheduleRound.id) ?? []
+    : []
+  const selectedRoundMatches = operations?.matches.filter((match) => String(match.round_number) === scheduleRoundNumber) ?? []
+  const venueSlots = Array.from({ length: requiredVenueCount }, (_, index) => {
+    const existingVenue = selectedRoundVenues[index]
+    return {
+      index,
+      venue: existingVenue,
+      draftName: venueNameDrafts[index] ?? existingVenue?.name ?? `${String.fromCharCode(65 + index)} 会场`,
+    }
+  })
+  const firstIntegralRound = operations?.rounds.find((round) => round.number === 1) ?? operations?.rounds[0]
+  const firstRoundVenues = firstIntegralRound
+    ? operations?.venues.filter((venue) => venue.integral_round === firstIntegralRound.id) ?? []
+    : []
+  const overviewVenueSlots = Array.from({ length: requiredVenueCount }, (_, index) => {
+    const existingVenue = firstRoundVenues[index]
+    return {
+      index,
+      venue: existingVenue,
+      draftName: venueNameDrafts[index] ?? existingVenue?.name ?? `${String.fromCharCode(65 + index)} 会场`,
+    }
+  })
   const visibleReviews =
     operations?.matchReviews.filter((review) => reviewRoundFilter === 'all' || String(review.round_number) === reviewRoundFilter) ?? []
   const selectedReview = operations?.matchReviews.find((review) => review.match === selectedReviewId) ?? null
@@ -542,24 +559,15 @@ function StaffWorkspace({
   useEffect(() => {
     if (!operations) return
     const firstRound = operations.rounds[0]
-    const firstVenue = operations.venues[0]
-    const firstTeam = operations.teams[0]
-    const secondTeam = operations.teams[1]
 
     if (firstRound && !topicRoundId) {
       setTopicRoundId(String(firstRound.id))
       setTopic(firstRound.topic)
     }
-    if (firstRound && !venueRoundId) setVenueRoundId(String(firstRound.id))
-    if (firstRound && !matchRoundId) setMatchRoundId(String(firstRound.id))
-    if (firstVenue && !matchVenueId) setMatchVenueId(String(firstVenue.id))
-    if (!matchSequence) setMatchSequence(String((operations.matches.length || 0) + 1))
-    if (firstTeam && !affirmativeTeamId) setAffirmativeTeamId(String(firstTeam.id))
-    if (secondTeam && !negativeTeamId) setNegativeTeamId(String(secondTeam.id))
     if (operations.coaches[0] && !bulkTeamCoachId) setBulkTeamCoachId(String(operations.coaches[0].id))
     if (operations.assessmentVenues[0] && !assessmentVenueId) setAssessmentVenueId(String(operations.assessmentVenues[0].id))
     if (operations.enrollments[0] && !assessmentEnrollmentId) setAssessmentEnrollmentId(String(operations.enrollments[0].id))
-  }, [affirmativeTeamId, assessmentEnrollmentId, assessmentVenueId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, topicRoundId, venueRoundId])
+  }, [assessmentEnrollmentId, assessmentVenueId, bulkTeamCoachId, operations, topicRoundId])
 
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
@@ -582,12 +590,47 @@ function StaffWorkspace({
 
   async function submitVenue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token || !venueRoundId) return
+    if (!token || !selectedScheduleRound || !editingVenue) return
+    if (editingVenue.judgeIds.length < 2 || editingVenue.judgeIds.length > 3) {
+      setFormError('每个会场必须分配 2-3 位评委。')
+      return
+    }
     await save(async () => {
-      await apiCreateVenue(token, Number(venueRoundId), venueName, venueJudgeIds.map(Number))
-      setVenueName('')
-      setVenueJudgeIds([])
-      return '会场已创建并完成评委分配。'
+      if (editingVenue.id) {
+        await apiUpdateVenue(token, editingVenue.id, {
+          name: editingVenue.name,
+          judges: editingVenue.judgeIds.map(Number),
+        })
+      }
+      setEditingVenue(null)
+      return '会场评委已更新。'
+    })
+  }
+
+  async function saveVenueSlot(name: string) {
+    if (!token || !selectedScheduleRound || !name.trim()) return
+    await save(async () => {
+      await apiCreateVenue(token, selectedScheduleRound.id, name.trim(), [])
+      return '会场名称已保存。'
+    })
+  }
+
+  async function syncVenueNamesToRounds() {
+    if (!token || !operations) return
+    await save(async () => {
+      const names = overviewVenueSlots.map((slot) => slot.draftName.trim()).filter(Boolean)
+      for (const round of operations.rounds) {
+        const venues = operations.venues.filter((venue) => venue.integral_round === round.id)
+        for (const [index, name] of names.entries()) {
+          const existing = venues[index]
+          if (existing) {
+            await apiUpdateVenue(token, existing.id, { name })
+          } else {
+            await apiCreateVenue(token, round.id, name, [])
+          }
+        }
+      }
+      return '本期会场名称已同步到三轮积分赛。'
     })
   }
 
@@ -614,22 +657,29 @@ function StaffWorkspace({
 
   async function submitMatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token || !matchRoundId || !matchVenueId || !affirmativeTeamId || !negativeTeamId) return
-    if (affirmativeTeamId === negativeTeamId) {
+    if (!token || !editingMatch) return
+    if (editingMatch.affirmativeTeamId === editingMatch.negativeTeamId) {
       setFormError('正反方不能选择同一支队伍。')
       return
     }
     await save(async () => {
-      await apiCreateMatch(token, {
-        integral_round: Number(matchRoundId),
-        venue: Number(matchVenueId),
-        sequence: Number(matchSequence),
-        starts_at: matchTime,
-        affirmative_team: Number(affirmativeTeamId),
-        negative_team: Number(negativeTeamId),
-      })
-      setMatchSequence(String((operations?.matches.length || 0) + 2))
-      return '对阵已创建。'
+      const payload = {
+        venue: editingMatch.venueId,
+        sequence: editingMatch.sequence,
+        starts_at: `${String(7 + editingMatch.sequence).padStart(2, '0')}:00`,
+        affirmative_team: Number(editingMatch.affirmativeTeamId),
+        negative_team: Number(editingMatch.negativeTeamId),
+      }
+      if (editingMatch.id) {
+        await apiUpdateMatch(token, editingMatch.id, payload)
+      } else if (selectedScheduleRound) {
+        await apiCreateMatch(token, {
+          integral_round: selectedScheduleRound.id,
+          ...payload,
+        })
+      }
+      setEditingMatch(null)
+      return editingMatch.id ? '对阵已更新。' : '对阵已创建。'
     })
   }
 
@@ -879,6 +929,36 @@ function StaffWorkspace({
                 </div>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>本期会场名称预设</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-slate-500">
+                    本期 {operations?.teams.length ?? 0} 支队伍，应设置 {requiredVenueCount} 个会场；名称会同步到三轮积分赛。
+                  </p>
+                  <Button type="button" disabled={isSaving || !operations?.rounds.length} onClick={syncVenueNamesToRounds}>
+                    同步到三轮积分赛
+                  </Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {overviewVenueSlots.map((slot) => (
+                    <label key={slot.index} className="grid gap-2 text-sm font-medium text-slate-700">
+                      {String.fromCharCode(65 + slot.index)} 会场名称
+                      <input
+                        className="h-10 rounded-md border border-slate-200 px-3 text-sm font-normal outline-none focus:border-slate-400"
+                        value={slot.draftName}
+                        onChange={(event) =>
+                          setVenueNameDrafts((current) => ({ ...current, [slot.index]: event.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </>
         ) : null}
 
@@ -1087,280 +1167,177 @@ function StaffWorkspace({
 
         {activeSection === 'schedule' ? (
           <>
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <span className="text-sm font-medium text-slate-700">查看轮次</span>
-          {['all', '1', '2', '3'].map((round) => (
-            <button
-              key={round}
-              className={
-                scheduleRoundFilter === round
-                  ? 'rounded-md bg-slate-950 px-3 py-1.5 text-sm font-medium text-white'
-                  : 'rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'
-              }
-              type="button"
-              onClick={() => setScheduleRoundFilter(round)}
-            >
-              {round === 'all' ? '全部' : `积分赛 ${round}`}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>设置辩题</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form className="mb-5 grid gap-3 md:grid-cols-[180px_1fr_auto]" onSubmit={submitTopic}>
-              <select
-                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                value={topicRoundId}
-                onChange={(event) => setTopicRoundId(event.target.value)}
-              >
-                {operations?.rounds.map((round) => (
-                  <option key={round.id} value={round.id}>积分赛 {round.number}</option>
-                ))}
-              </select>
-              <input
-                className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                placeholder="输入本轮辩题"
-                value={topic}
-                onChange={(event) => setTopic(event.target.value)}
-              />
-              <Button type="submit" disabled={isSaving || !topicRoundId}>保存辩题</Button>
-            </form>
-            <div className="grid gap-3">
-              {operations?.rounds.length ? (
-                operations.rounds.map((round) => (
-                  <div key={round.id} className="rounded-md border border-slate-200 px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="font-semibold">积分赛 {round.number}</p>
-                      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                        {round.match_count} 场比赛
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-600">{round.topic || '暂未设置辩题'}</p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">暂无积分赛轮次。</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>创建会场与评委分配</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="mb-5 grid gap-3" onSubmit={submitVenue}>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <select
-                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    value={venueRoundId}
-                    onChange={(event) => setVenueRoundId(event.target.value)}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm font-medium text-slate-700">编排轮次</span>
+                {['1', '2', '3'].map((roundNumber) => (
+                  <button
+                    key={roundNumber}
+                    className={
+                      scheduleRoundNumber === roundNumber
+                        ? 'rounded-md bg-slate-950 px-3 py-1.5 text-sm font-medium text-white'
+                        : 'rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'
+                    }
+                    type="button"
+                    onClick={() => {
+                      const targetRound = operations?.rounds.find((round) => String(round.number) === roundNumber)
+                      setScheduleRoundNumber(roundNumber)
+                      if (targetRound) {
+                        setTopicRoundId(String(targetRound.id))
+                        setTopic(targetRound.topic)
+                      }
+                    }}
                   >
-                    {operations?.rounds.map((round) => (
-                      <option key={round.id} value={round.id}>积分赛 {round.number}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="会场名称，如 B 会场"
-                    value={venueName}
-                    onChange={(event) => setVenueName(event.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <p className="text-sm font-medium">分配评委</p>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {operations?.judges.map((judge) => (
-                      <label key={judge.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
-                        <input
-                          checked={venueJudgeIds.includes(String(judge.id))}
-                          type="checkbox"
-                          onChange={(event) => {
-                            setVenueJudgeIds((current) =>
-                              event.target.checked
-                                ? [...current, String(judge.id)]
-                                : current.filter((id) => id !== String(judge.id)),
-                            )
-                          }}
-                        />
-                        {judge.name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <Button type="submit" disabled={isSaving || !venueName || !venueRoundId}>创建会场</Button>
-              </form>
-              <div className="grid gap-3">
-                {visibleVenues.length ? (
-                  visibleVenues.map((venue) => (
-                    <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
-                      <p className="font-semibold">{venue.name}</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        评委：{venue.judge_names.join('、') || '暂未分配'}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-500">暂无会场。</p>
-                )}
+                    积分赛 {roundNumber}
+                  </button>
+                ))}
               </div>
-            </CardContent>
-          </Card>
+              <p className="text-sm text-slate-500">
+                本期 {operations?.teams.length ?? 0} 支队伍，应设置 {requiredVenueCount} 个会场；同一会场本轮评委固定 2-3 人。
+              </p>
+            </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>录入对阵</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="mb-5 grid gap-3" onSubmit={submitMatch}>
-                <div className="grid gap-3 md:grid-cols-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>设置辩题</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form className="grid gap-3 md:grid-cols-[180px_1fr_auto]" onSubmit={submitTopic}>
                   <select
                     className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    value={matchRoundId}
+                    value={topicRoundId}
                     onChange={(event) => {
-                      setMatchRoundId(event.target.value)
-                      setMatchVenueId('')
+                      const targetRound = operations?.rounds.find((round) => String(round.id) === event.target.value)
+                      setTopicRoundId(event.target.value)
+                      if (targetRound) {
+                        setScheduleRoundNumber(String(targetRound.number))
+                        setTopic(targetRound.topic)
+                      }
                     }}
                   >
                     {operations?.rounds.map((round) => (
                       <option key={round.id} value={round.id}>积分赛 {round.number}</option>
                     ))}
                   </select>
-                  <select
-                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                    value={matchVenueId}
-                    onChange={(event) => setMatchVenueId(event.target.value)}
-                  >
-                    <option value="">选择会场</option>
-                    {venuesForSelectedRound.map((venue) => (
-                      <option key={venue.id} value={venue.id}>{venue.name}</option>
-                    ))}
-                  </select>
                   <input
                     className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                    min="1"
-                    max="5"
-                    placeholder="场次"
-                    type="number"
-                    value={matchSequence}
-                    onChange={(event) => setMatchSequence(event.target.value)}
+                    placeholder="输入本轮辩题"
+                    value={topic}
+                    onChange={(event) => setTopic(event.target.value)}
                   />
-                  <input
-                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                    type="time"
-                    value={matchTime}
-                    onChange={(event) => setMatchTime(event.target.value)}
-                  />
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm font-medium text-red-700">
-                    正方队伍
-                    <select
-                      className="h-10 rounded-md border border-red-100 bg-white px-3 text-sm text-slate-950 outline-none focus:border-red-300"
-                      value={affirmativeTeamId}
-                      onChange={(event) => setAffirmativeTeamId(event.target.value)}
-                    >
-                      {operations?.teams.map((team) => (
-                        <option key={team.id} value={team.id}>{team.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-2 text-sm font-medium text-blue-700">
-                    反方队伍
-                    <select
-                      className="h-10 rounded-md border border-blue-100 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-300"
-                      value={negativeTeamId}
-                      onChange={(event) => setNegativeTeamId(event.target.value)}
-                    >
-                      {operations?.teams.map((team) => (
-                        <option key={team.id} value={team.id}>{team.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <Button type="submit" disabled={isSaving || !matchVenueId || !matchSequence}>创建对阵</Button>
-              </form>
-              <div className="grid gap-3">
-                {visibleMatches.length ? (
-                  visibleMatches.map((match) => (
-                    <div key={match.id} className="rounded-md border border-slate-200 px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-                        <span>积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场</span>
-                        <span>{match.starts_at.slice(0, 5)}</span>
-                      </div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
-                        <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2">
-                          <p className="text-xs font-medium text-red-500">正方</p>
-                          <p className="mt-1 font-semibold text-red-900">{match.affirmative_team_name}</p>
-                        </div>
-                        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
-                          <p className="text-xs font-medium text-blue-500">反方</p>
-                          <p className="mt-1 font-semibold text-blue-900">{match.negative_team_name}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-500">暂无对阵。</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  <Button type="submit" disabled={isSaving || !topicRoundId}>保存辩题</Button>
+                </form>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>会场时间轴</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {visibleVenues.length ? (
-                visibleVenues.map((venue) => {
-                  const venueMatches = visibleMatches
-                    .filter((match) => match.venue === venue.id)
-                    .sort((a, b) => a.sequence - b.sequence)
-                  return (
-                    <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="font-semibold">{venue.name}</p>
-                        <p className="text-xs text-slate-500">评委：{venue.judge_names.join('、') || '未分配'}</p>
+            <Card>
+              <CardHeader>
+                <CardTitle>会场时间轴</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {venueSlots.map((slot) => {
+                    const venue = slot.venue
+                    const venueMatches = venue
+                      ? selectedRoundMatches
+                          .filter((match) => match.venue === venue.id)
+                          .sort((a, b) => a.sequence - b.sequence)
+                      : []
+                    return (
+                      <div key={slot.index} className="rounded-md border border-slate-200 px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            {venue ? (
+                              <>
+                                <p className="font-semibold">{venue.name}</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  评委：{venue.judge_names.join('、') || '未分配'}
+                                </p>
+                              </>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  className="h-9 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                                  value={slot.draftName}
+                                  onChange={(event) =>
+                                    setVenueNameDrafts((current) => ({ ...current, [slot.index]: event.target.value }))
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  disabled={isSaving || !slot.draftName.trim()}
+                                  onClick={() => saveVenueSlot(slot.draftName)}
+                                >
+                                  创建会场
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          {venue ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                setEditingVenue({
+                                  id: venue.id,
+                                  name: venue.name,
+                                  judgeIds: venue.judges.map(String),
+                                })
+                              }
+                            >
+                              编辑评委
+                            </Button>
+                          ) : null}
+                        </div>
+                        <div className="mt-4 grid gap-2">
+                          {[1, 2, 3, 4, 5].map((sequence) => {
+                            const match = venueMatches.find((item) => item.sequence === sequence)
+                            const startsAt = match?.starts_at.slice(0, 5) ?? `${String(7 + sequence).padStart(2, '0')}:00`
+                            return (
+                              <div
+                                key={sequence}
+                                className="grid gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr_auto]"
+                              >
+                                <span className="font-medium text-slate-500">{startsAt}</span>
+                                {match ? (
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-red-700">{match.affirmative_team_name}</span>
+                                    <span className="px-2 text-slate-400">vs</span>
+                                    <span className="font-medium text-blue-700">{match.negative_team_name}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400">{venue ? '尚未安排' : '请先创建会场'}</span>
+                                )}
+                                {venue ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                      const firstTeam = operations?.teams[0]
+                                      const secondTeam = operations?.teams[1]
+                                      setEditingMatch({
+                                        id: match?.id ?? null,
+                                        venueId: venue.id,
+                                        sequence,
+                                        affirmativeTeamId: String(match?.affirmative_team ?? firstTeam?.id ?? ''),
+                                        negativeTeamId: String(match?.negative_team ?? secondTeam?.id ?? ''),
+                                      })
+                                    }}
+                                  >
+                                    {match ? '编辑对阵' : '录入对阵'}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-                      <div className="mt-3 grid gap-2">
-                        {[1, 2, 3, 4, 5].map((sequence) => {
-                          const match = venueMatches.find((item) => item.sequence === sequence)
-                          const defaultHour = 8 + sequence - 1
-                          return (
-                            <div key={sequence} className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr]">
-                              <span className="font-medium text-slate-500">
-                                {match?.starts_at.slice(0, 5) ?? `${String(defaultHour).padStart(2, '0')}:00`}
-                              </span>
-                              {match ? (
-                                <span>
-                                  <span className="font-medium text-red-700">{match.affirmative_team_name}</span>
-                                  <span className="px-2 text-slate-400">vs</span>
-                                  <span className="font-medium text-blue-700">{match.negative_team_name}</span>
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">未安排</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })
-              ) : (
-                <p className="text-sm text-slate-500">暂无会场。</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
           </>
         ) : null}
 
@@ -2051,6 +2028,120 @@ function StaffWorkspace({
               </Button>
             </div>
           </form>
+        </Modal>
+
+        <Modal title="编辑会场评委" isOpen={Boolean(editingVenue)} onClose={() => setEditingVenue(null)}>
+          {editingVenue ? (
+            <form className="grid gap-4" onSubmit={submitVenue}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                会场名称
+                <input
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm font-normal outline-none focus:border-slate-400"
+                  value={editingVenue.name}
+                  onChange={(event) => setEditingVenue({ ...editingVenue, name: event.target.value })}
+                />
+              </label>
+              <div className="grid gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">分配评委</p>
+                  <span
+                    className={
+                      editingVenue.judgeIds.length >= 2 && editingVenue.judgeIds.length <= 3
+                        ? 'text-xs text-slate-500'
+                        : 'text-xs text-red-600'
+                    }
+                  >
+                    已选 {editingVenue.judgeIds.length} 人，必须 2-3 人
+                  </span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {operations?.judges.map((judge) => (
+                    <label key={judge.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                      <input
+                        checked={editingVenue.judgeIds.includes(String(judge.id))}
+                        type="checkbox"
+                        onChange={(event) => {
+                          setEditingVenue({
+                            ...editingVenue,
+                            judgeIds: event.target.checked
+                              ? [...editingVenue.judgeIds, String(judge.id)]
+                              : editingVenue.judgeIds.filter((id) => id !== String(judge.id)),
+                          })
+                        }}
+                      />
+                      {judge.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => setEditingVenue(null)}>取消</Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    isSaving ||
+                    !editingVenue.name.trim() ||
+                    editingVenue.judgeIds.length < 2 ||
+                    editingVenue.judgeIds.length > 3
+                  }
+                >
+                  保存
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Modal>
+
+        <Modal title={editingMatch?.id ? '编辑对阵' : '录入对阵'} isOpen={Boolean(editingMatch)} onClose={() => setEditingMatch(null)}>
+          {editingMatch ? (
+            <form className="grid gap-4" onSubmit={submitMatch}>
+              <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                积分赛 {scheduleRoundNumber} · 第 {editingMatch.sequence} 场 · {String(7 + editingMatch.sequence).padStart(2, '0')}:00
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-2 text-sm font-medium text-red-700">
+                  正方队伍
+                  <select
+                    className="h-10 rounded-md border border-red-100 bg-white px-3 text-sm font-normal text-slate-950 outline-none focus:border-red-300"
+                    value={editingMatch.affirmativeTeamId}
+                    onChange={(event) => setEditingMatch({ ...editingMatch, affirmativeTeamId: event.target.value })}
+                  >
+                    <option value="">选择正方队伍</option>
+                    {operations?.teams.map((team) => (
+                      <option key={team.id} value={team.id}>{team.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-medium text-blue-700">
+                  反方队伍
+                  <select
+                    className="h-10 rounded-md border border-blue-100 bg-white px-3 text-sm font-normal text-slate-950 outline-none focus:border-blue-300"
+                    value={editingMatch.negativeTeamId}
+                    onChange={(event) => setEditingMatch({ ...editingMatch, negativeTeamId: event.target.value })}
+                  >
+                    <option value="">选择反方队伍</option>
+                    {operations?.teams.map((team) => (
+                      <option key={team.id} value={team.id}>{team.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => setEditingMatch(null)}>取消</Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    isSaving ||
+                    !editingMatch.affirmativeTeamId ||
+                    !editingMatch.negativeTeamId ||
+                    editingMatch.affirmativeTeamId === editingMatch.negativeTeamId
+                  }
+                >
+                  保存
+                </Button>
+              </div>
+            </form>
+          ) : null}
         </Modal>
       </section>
     </section>
