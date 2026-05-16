@@ -1,9 +1,9 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from camps.models import Camp, Judge, Team
+from camps.models import Camp, CampEnrollment, Coach, Judge, Student, Team
 from camps.permissions import IsAdminOrStaff
-from camps.serializers import CampSerializer, JudgeSerializer, TeamSerializer
+from camps.serializers import CampEnrollmentSerializer, CampSerializer, CoachSerializer, JudgeSerializer, StudentSerializer, TeamSerializer
 from competitions.models import CompetitionVenue, DebateSide, IntegralRound, Match
 from competitions.serializers import CompetitionVenueSerializer, IntegralRoundSerializer, MatchSerializer
 
@@ -96,6 +96,7 @@ class OperationsDashboardView(APIView):
         venues = CompetitionVenue.objects.none()
         matches = Match.objects.none()
         teams = Team.objects.none()
+        enrollments = CampEnrollment.objects.none()
 
         if camp:
             rounds = IntegralRound.objects.filter(camp=camp).prefetch_related("matches")
@@ -114,6 +115,7 @@ class OperationsDashboardView(APIView):
                 "ballots__best_speaker_votes",
             )
             teams = Team.objects.filter(camp=camp).select_related("coach").prefetch_related("members")
+            enrollments = CampEnrollment.objects.filter(camp=camp).select_related("student", "team")
 
         match_reviews = [_match_review_summary(match) for match in matches]
         team_totals = {}
@@ -139,11 +141,15 @@ class OperationsDashboardView(APIView):
         return Response(
             {
                 "activeCamp": CampSerializer(camp).data if camp else None,
+                "camps": CampSerializer(Camp.objects.all(), many=True).data,
                 "rounds": IntegralRoundSerializer(rounds, many=True).data,
                 "venues": CompetitionVenueSerializer(venues, many=True).data,
                 "matches": MatchSerializer(matches, many=True).data,
                 "teams": TeamSerializer(teams, many=True).data,
+                "coaches": CoachSerializer(Coach.objects.filter(is_active=True), many=True).data,
                 "judges": JudgeSerializer(Judge.objects.filter(is_active=True), many=True).data,
+                "students": StudentSerializer(Student.objects.all(), many=True).data,
+                "enrollments": CampEnrollmentSerializer(enrollments, many=True).data,
                 "matchReviews": match_reviews,
                 "teamRankings": sorted(team_totals.values(), key=lambda item: item["total"], reverse=True),
             }

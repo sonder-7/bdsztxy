@@ -1,5 +1,7 @@
 from rest_framework.viewsets import ModelViewSet
 
+from competitions.models import IntegralRound
+
 from .models import Camp, CampEnrollment, Coach, Judge, Student, Team
 from .permissions import IsAdminOrStaff
 from .serializers import (
@@ -19,6 +21,11 @@ class StaffModelViewSet(ModelViewSet):
 class CampViewSet(StaffModelViewSet):
     queryset = Camp.objects.all()
     serializer_class = CampSerializer
+
+    def perform_create(self, serializer):
+        camp = serializer.save()
+        for number in [1, 2, 3]:
+            IntegralRound.objects.get_or_create(camp=camp, number=number)
 
 
 class CoachViewSet(StaffModelViewSet):

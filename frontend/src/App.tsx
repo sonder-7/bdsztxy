@@ -14,7 +14,13 @@ import {
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
 import {
+  apiCreateCamp,
+  apiCreateCoach,
+  apiCreateEnrollment,
+  apiCreateJudge,
   apiCreateMatch,
+  apiCreateStudent,
+  apiCreateTeam,
   apiCreateVenue,
   apiGetCoachDashboard,
   apiGetJudgeMatches,
@@ -403,6 +409,22 @@ function StaffWorkspace({
   const [matchTime, setMatchTime] = useState('10:00')
   const [affirmativeTeamId, setAffirmativeTeamId] = useState('')
   const [negativeTeamId, setNegativeTeamId] = useState('')
+  const [campName, setCampName] = useState('')
+  const [campSeason, setCampSeason] = useState('')
+  const [campStartsOn, setCampStartsOn] = useState('')
+  const [campEndsOn, setCampEndsOn] = useState('')
+  const [coachName, setCoachName] = useState('')
+  const [coachPhone, setCoachPhone] = useState('')
+  const [coachNote, setCoachNote] = useState('')
+  const [judgeName, setJudgeName] = useState('')
+  const [judgePhone, setJudgePhone] = useState('')
+  const [judgeNote, setJudgeNote] = useState('')
+  const [teamName, setTeamName] = useState('')
+  const [teamCoachId, setTeamCoachId] = useState('')
+  const [studentName, setStudentName] = useState('')
+  const [studentPhone, setStudentPhone] = useState('')
+  const [studentNickname, setStudentNickname] = useState('')
+  const [studentTeamId, setStudentTeamId] = useState('')
   const [formMessage, setFormMessage] = useState('')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -429,7 +451,9 @@ function StaffWorkspace({
     if (!matchSequence) setMatchSequence(String((operations.matches.length || 0) + 1))
     if (firstTeam && !affirmativeTeamId) setAffirmativeTeamId(String(firstTeam.id))
     if (secondTeam && !negativeTeamId) setNegativeTeamId(String(secondTeam.id))
-  }, [affirmativeTeamId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, topicRoundId, venueRoundId])
+    if (operations.coaches[0] && !teamCoachId) setTeamCoachId(String(operations.coaches[0].id))
+    if (operations.teams[0] && !studentTeamId) setStudentTeamId(String(operations.teams[0].id))
+  }, [affirmativeTeamId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
 
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
@@ -473,6 +497,83 @@ function StaffWorkspace({
       })
       setMatchSequence(String((operations?.matches.length || 0) + 2))
       return '对阵已创建。'
+    })
+  }
+
+  async function submitCamp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !campName) return
+    await save(async () => {
+      await apiCreateCamp(token, {
+        name: campName,
+        season: campSeason,
+        starts_on: campStartsOn || null,
+        ends_on: campEndsOn || null,
+        is_active: true,
+      })
+      setCampName('')
+      setCampSeason('')
+      setCampStartsOn('')
+      setCampEndsOn('')
+      return '营期已创建，并自动生成积分赛 1/2/3。'
+    })
+  }
+
+  async function submitCoach(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !coachName) return
+    await save(async () => {
+      await apiCreateCoach(token, { name: coachName, phone: coachPhone, note: coachNote })
+      setCoachName('')
+      setCoachPhone('')
+      setCoachNote('')
+      return '教练已加入教练库。'
+    })
+  }
+
+  async function submitJudge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !judgeName) return
+    await save(async () => {
+      await apiCreateJudge(token, { name: judgeName, phone: judgePhone, note: judgeNote })
+      setJudgeName('')
+      setJudgePhone('')
+      setJudgeNote('')
+      return '评委已加入评委库。'
+    })
+  }
+
+  async function submitTeam(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !teamName || !teamCoachId) return
+    await save(async () => {
+      await apiCreateTeam(token, {
+        camp: activeCamp.id,
+        name: teamName,
+        coach: Number(teamCoachId),
+      })
+      setTeamName('')
+      return '队伍已创建并分配教练。'
+    })
+  }
+
+  async function submitStudent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !studentName || !studentNickname) return
+    await save(async () => {
+      const student = await apiCreateStudent(token, { real_name: studentName, phone: studentPhone, note: '' })
+      await apiCreateEnrollment(token, {
+        camp: activeCamp.id,
+        student: student.id,
+        nickname: studentNickname,
+        team: studentTeamId ? Number(studentTeamId) : null,
+      })
+      setStudentName('')
+      setStudentPhone('')
+      setStudentNickname('')
+      return '学员已录入并加入当前营期。'
     })
   }
 
@@ -527,6 +628,132 @@ function StaffWorkspace({
           <MetricCard label="队伍数" value={String(operations?.teams.length ?? 0)} />
           <MetricCard label="评委数" value={String(operations?.judges.length ?? 0)} />
           <MetricCard label="已录对阵" value={String(operations?.matches.length ?? 0)} />
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>创建营期</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-3" onSubmit={submitCamp}>
+                <input
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="营期名称，如 2026 夏季表达实战特训营"
+                  value={campName}
+                  onChange={(event) => setCampName(event.target.value)}
+                />
+                <div className="grid gap-3 md:grid-cols-3">
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    placeholder="季节，如 2026 夏季"
+                    value={campSeason}
+                    onChange={(event) => setCampSeason(event.target.value)}
+                  />
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    type="date"
+                    value={campStartsOn}
+                    onChange={(event) => setCampStartsOn(event.target.value)}
+                  />
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    type="date"
+                    value={campEndsOn}
+                    onChange={(event) => setCampEndsOn(event.target.value)}
+                  />
+                </div>
+                <Button type="submit" disabled={isSaving || !campName}>创建营期</Button>
+              </form>
+              <div className="mt-5 grid gap-2">
+                {operations?.camps.slice(0, 4).map((camp) => (
+                  <div key={camp.id} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
+                    <span className="font-semibold">{camp.name}</span>
+                    <span className="ml-2 text-slate-500">{camp.season || '未填写季节'}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>人员库</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2">
+                <form className="grid gap-3" onSubmit={submitCoach}>
+                  <p className="text-sm font-semibold">新增教练</p>
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="教练姓名" value={coachName} onChange={(event) => setCoachName(event.target.value)} />
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={coachPhone} onChange={(event) => setCoachPhone(event.target.value)} />
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="备注" value={coachNote} onChange={(event) => setCoachNote(event.target.value)} />
+                  <Button type="submit" disabled={isSaving || !coachName}>加入教练库</Button>
+                </form>
+                <form className="grid gap-3" onSubmit={submitJudge}>
+                  <p className="text-sm font-semibold">新增评委</p>
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="评委姓名" value={judgeName} onChange={(event) => setJudgeName(event.target.value)} />
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={judgePhone} onChange={(event) => setJudgePhone(event.target.value)} />
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="备注" value={judgeNote} onChange={(event) => setJudgeNote(event.target.value)} />
+                  <Button type="submit" disabled={isSaving || !judgeName}>加入评委库</Button>
+                </form>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>创建队伍</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-3" onSubmit={submitTeam}>
+                <input
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="队伍名称"
+                  value={teamName}
+                  onChange={(event) => setTeamName(event.target.value)}
+                />
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  value={teamCoachId}
+                  onChange={(event) => setTeamCoachId(event.target.value)}
+                >
+                  <option value="">选择教练</option>
+                  {operations?.coaches.map((coach) => (
+                    <option key={coach.id} value={coach.id}>{coach.name}</option>
+                  ))}
+                </select>
+                <Button type="submit" disabled={isSaving || !teamName || !teamCoachId}>创建队伍</Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>录入学员并归队</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-3" onSubmit={submitStudent}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="真实姓名" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
+                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="本期昵称" value={studentNickname} onChange={(event) => setStudentNickname(event.target.value)} />
+                </div>
+                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={studentPhone} onChange={(event) => setStudentPhone(event.target.value)} />
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  value={studentTeamId}
+                  onChange={(event) => setStudentTeamId(event.target.value)}
+                >
+                  <option value="">暂不分队</option>
+                  {operations?.teams.map((team) => (
+                    <option key={team.id} value={team.id}>{team.name}</option>
+                  ))}
+                </select>
+                <Button type="submit" disabled={isSaving || !studentName || !studentNickname}>录入学员</Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
 
         <Card>

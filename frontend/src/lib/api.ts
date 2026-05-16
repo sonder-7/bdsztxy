@@ -15,6 +15,14 @@ export type OperationsDashboard = {
     ends_on: string | null
     is_active: boolean
   }
+  camps: Array<{
+    id: number
+    name: string
+    season: string
+    starts_on: string | null
+    ends_on: string | null
+    is_active: boolean
+  }>
   rounds: Array<{
     id: number
     camp: number
@@ -51,12 +59,34 @@ export type OperationsDashboard = {
     coach_name: string
     member_count: number
   }>
+  coaches: Array<{
+    id: number
+    name: string
+    phone: string
+    note: string
+    is_active: boolean
+  }>
   judges: Array<{
     id: number
     name: string
     phone: string
     note: string
     is_active: boolean
+  }>
+  students: Array<{
+    id: number
+    real_name: string
+    phone: string
+    note: string
+  }>
+  enrollments: Array<{
+    id: number
+    camp: number
+    student: number
+    student_name: string
+    nickname: string
+    team: number | null
+    team_name: string | null
   }>
   matchReviews: Array<{
     match: number
@@ -288,6 +318,36 @@ async function apiWrite<T>(path: string, token: string, method: 'POST' | 'PATCH'
 
 export async function apiUpdateRoundTopic(token: string, roundId: number, topic: string) {
   return apiWrite(`/api/competitions/rounds/${roundId}/`, token, 'PATCH', { topic })
+}
+
+export async function apiCreateCamp(
+  token: string,
+  payload: { name: string; season: string; starts_on: string | null; ends_on: string | null; is_active: boolean },
+) {
+  return apiWrite('/api/camps/camps/', token, 'POST', payload)
+}
+
+export async function apiCreateCoach(token: string, payload: { name: string; phone: string; note: string }) {
+  return apiWrite('/api/camps/coaches/', token, 'POST', { ...payload, is_active: true })
+}
+
+export async function apiCreateJudge(token: string, payload: { name: string; phone: string; note: string }) {
+  return apiWrite('/api/camps/judges/', token, 'POST', { ...payload, is_active: true })
+}
+
+export async function apiCreateStudent(token: string, payload: { real_name: string; phone: string; note: string }) {
+  return apiWrite<{ id: number; real_name: string; phone: string; note: string }>('/api/camps/students/', token, 'POST', payload)
+}
+
+export async function apiCreateTeam(token: string, payload: { camp: number; name: string; coach: number }) {
+  return apiWrite('/api/camps/teams/', token, 'POST', payload)
+}
+
+export async function apiCreateEnrollment(
+  token: string,
+  payload: { camp: number; student: number; nickname: string; team: number | null },
+) {
+  return apiWrite('/api/camps/enrollments/', token, 'POST', payload)
 }
 
 export async function apiCreateVenue(token: string, integralRound: number, name: string, judges: number[]) {
