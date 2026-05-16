@@ -420,12 +420,6 @@ function StaffWorkspace({
   const [campSeason, setCampSeason] = useState('')
   const [campStartsOn, setCampStartsOn] = useState('')
   const [campEndsOn, setCampEndsOn] = useState('')
-  const [coachName, setCoachName] = useState('')
-  const [coachPhone, setCoachPhone] = useState('')
-  const [coachNote, setCoachNote] = useState('')
-  const [judgeName, setJudgeName] = useState('')
-  const [judgePhone, setJudgePhone] = useState('')
-  const [judgeNote, setJudgeNote] = useState('')
   const [teamName, setTeamName] = useState('')
   const [teamCoachId, setTeamCoachId] = useState('')
   const [studentName, setStudentName] = useState('')
@@ -436,9 +430,6 @@ function StaffWorkspace({
   const [accountPassword, setAccountPassword] = useState('')
   const [accountRole, setAccountRole] = useState<'admin' | 'staff' | 'coach' | 'judge'>('staff')
   const [accountDisplayName, setAccountDisplayName] = useState('')
-  const [accountPhone, setAccountPhone] = useState('')
-  const [accountCoachId, setAccountCoachId] = useState('')
-  const [accountJudgeId, setAccountJudgeId] = useState('')
   const [formMessage, setFormMessage] = useState('')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -533,30 +524,6 @@ function StaffWorkspace({
     })
   }
 
-  async function submitCoach(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!token || !coachName) return
-    await save(async () => {
-      await apiCreateCoach(token, { name: coachName, phone: coachPhone, note: coachNote })
-      setCoachName('')
-      setCoachPhone('')
-      setCoachNote('')
-      return '教练已加入教练库。'
-    })
-  }
-
-  async function submitJudge(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!token || !judgeName) return
-    await save(async () => {
-      await apiCreateJudge(token, { name: judgeName, phone: judgePhone, note: judgeNote })
-      setJudgeName('')
-      setJudgePhone('')
-      setJudgeNote('')
-      return '评委已加入评委库。'
-    })
-  }
-
   async function submitTeam(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const activeCamp = operations?.activeCamp
@@ -594,33 +561,34 @@ function StaffWorkspace({
   async function submitAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!token || !accountUsername || !accountPassword || !accountDisplayName) return
-    if (accountRole === 'coach' && !accountCoachId) {
-      setFormError('教练账号必须绑定教练档案。')
-      return
-    }
-    if (accountRole === 'judge' && !accountJudgeId) {
-      setFormError('评委账号必须绑定评委档案。')
-      return
-    }
     await save(async () => {
+      let coachId: number | null = null
+      let judgeId: number | null = null
+      if (accountRole === 'coach') {
+        const coach = await apiCreateCoach(token, { name: accountDisplayName, phone: '', note: '' })
+        coachId = coach.id
+      }
+      if (accountRole === 'judge') {
+        const judge = await apiCreateJudge(token, { name: accountDisplayName, phone: '', note: '' })
+        judgeId = judge.id
+      }
       await apiCreateUserAccount(token, {
         username: accountUsername,
         password: accountPassword,
         role: accountRole,
         display_name: accountDisplayName,
-        phone: accountPhone,
-        coach: accountRole === 'coach' ? Number(accountCoachId) : null,
-        judge: accountRole === 'judge' ? Number(accountJudgeId) : null,
+        phone: '',
+        coach: coachId,
+        judge: judgeId,
         is_active: true,
         profile_is_active: true,
       })
       setAccountUsername('')
       setAccountPassword('')
       setAccountDisplayName('')
-      setAccountPhone('')
-      setAccountCoachId('')
-      setAccountJudgeId('')
-      return '账号已创建并绑定。'
+      return accountRole === 'coach' || accountRole === 'judge'
+        ? '人员档案和账号已创建。'
+        : '账号已创建。'
     })
   }
 
@@ -747,29 +715,53 @@ function StaffWorkspace({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>人员库</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                <form className="grid gap-3" onSubmit={submitCoach}>
-                  <p className="text-sm font-semibold">新增教练</p>
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="教练姓名" value={coachName} onChange={(event) => setCoachName(event.target.value)} />
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={coachPhone} onChange={(event) => setCoachPhone(event.target.value)} />
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="备注" value={coachNote} onChange={(event) => setCoachNote(event.target.value)} />
-                  <Button type="submit" disabled={isSaving || !coachName}>加入教练库</Button>
+          {isAdmin ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>创建人员账号</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form className="grid gap-3" onSubmit={submitAccount}>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <input
+                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                      placeholder="姓名"
+                      value={accountDisplayName}
+                      onChange={(event) => setAccountDisplayName(event.target.value)}
+                    />
+                    <select
+                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                      value={accountRole}
+                      onChange={(event) => setAccountRole(event.target.value as 'admin' | 'staff' | 'coach' | 'judge')}
+                    >
+                      <option value="staff">工作人员</option>
+                      <option value="coach">教练</option>
+                      <option value="judge">评委</option>
+                      <option value="admin">管理员</option>
+                    </select>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <input
+                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                      placeholder="账号"
+                      value={accountUsername}
+                      onChange={(event) => setAccountUsername(event.target.value)}
+                    />
+                    <input
+                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                      placeholder="密码"
+                      type="password"
+                      value={accountPassword}
+                      onChange={(event) => setAccountPassword(event.target.value)}
+                    />
+                    <Button type="submit" disabled={isSaving || !accountUsername || !accountPassword || !accountDisplayName}>
+                      创建
+                    </Button>
+                  </div>
                 </form>
-                <form className="grid gap-3" onSubmit={submitJudge}>
-                  <p className="text-sm font-semibold">新增评委</p>
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="评委姓名" value={judgeName} onChange={(event) => setJudgeName(event.target.value)} />
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={judgePhone} onChange={(event) => setJudgePhone(event.target.value)} />
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="备注" value={judgeNote} onChange={(event) => setJudgeNote(event.target.value)} />
-                  <Button type="submit" disabled={isSaving || !judgeName}>加入评委库</Button>
-                </form>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         <div className="grid gap-5 xl:grid-cols-2">
@@ -830,53 +822,9 @@ function StaffWorkspace({
         {isAdmin ? (
           <Card>
             <CardHeader>
-              <CardTitle>账号管理与绑定</CardTitle>
+              <CardTitle>账号列表</CardTitle>
             </CardHeader>
             <CardContent>
-              <form className="mb-5 grid gap-3" onSubmit={submitAccount}>
-              <div className="grid gap-3 md:grid-cols-4">
-                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="账号" value={accountUsername} onChange={(event) => setAccountUsername(event.target.value)} />
-                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="初始密码" type="password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
-                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="显示名" value={accountDisplayName} onChange={(event) => setAccountDisplayName(event.target.value)} />
-                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={accountPhone} onChange={(event) => setAccountPhone(event.target.value)} />
-              </div>
-              <div className="grid gap-3 md:grid-cols-[160px_1fr_1fr_auto]">
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  value={accountRole}
-                  onChange={(event) => setAccountRole(event.target.value as 'admin' | 'staff' | 'coach' | 'judge')}
-                >
-                  <option value="staff">工作人员</option>
-                  <option value="coach">教练</option>
-                  <option value="judge">评委</option>
-                  <option value="admin">管理员</option>
-                </select>
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  disabled={accountRole !== 'coach'}
-                  value={accountCoachId}
-                  onChange={(event) => setAccountCoachId(event.target.value)}
-                >
-                  <option value="">绑定教练档案</option>
-                  {operations?.coaches.map((coach) => (
-                    <option key={coach.id} value={coach.id}>{coach.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  disabled={accountRole !== 'judge'}
-                  value={accountJudgeId}
-                  onChange={(event) => setAccountJudgeId(event.target.value)}
-                >
-                  <option value="">绑定评委档案</option>
-                  {operations?.judges.map((judge) => (
-                    <option key={judge.id} value={judge.id}>{judge.name}</option>
-                  ))}
-                </select>
-                <Button type="submit" disabled={isSaving || !accountUsername || !accountPassword || !accountDisplayName}>创建账号</Button>
-              </div>
-              </form>
-
               <div className="grid gap-3 md:grid-cols-2">
                 {operations?.users.map((account) => (
                   <div key={account.id} className="rounded-md border border-slate-200 px-4 py-3">

@@ -343,11 +343,11 @@ export async function apiCreateCamp(
 }
 
 export async function apiCreateCoach(token: string, payload: { name: string; phone: string; note: string }) {
-  return apiWrite('/api/camps/coaches/', token, 'POST', { ...payload, is_active: true })
+  return apiWrite<{ id: number; name: string; phone: string; note: string; is_active: boolean }>('/api/camps/coaches/', token, 'POST', { ...payload, is_active: true })
 }
 
 export async function apiCreateJudge(token: string, payload: { name: string; phone: string; note: string }) {
-  return apiWrite('/api/camps/judges/', token, 'POST', { ...payload, is_active: true })
+  return apiWrite<{ id: number; name: string; phone: string; note: string; is_active: boolean }>('/api/camps/judges/', token, 'POST', { ...payload, is_active: true })
 }
 
 export async function apiCreateStudent(token: string, payload: { real_name: string; phone: string; note: string }) {
