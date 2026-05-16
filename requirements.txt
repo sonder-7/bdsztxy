@@ -4,3 +4,4 @@ psycopg[binary]>=3.2,<3.3
 django-cors-headers>=4.9,<5
 python-dotenv>=1.2,<2
 Pillow>=12.2,<13
+openpyxl>=3.1,<4

@@ -21,11 +21,13 @@ import {
   apiCreateMatch,
   apiCreateStudent,
   apiCreateTeam,
+  apiCreateTeamFromNicknames,
   apiCreateUserAccount,
   apiCreateVenue,
   apiGetCoachDashboard,
   apiGetJudgeMatches,
   apiGetOperationsDashboard,
+  apiImportEnrollments,
   apiLogin,
   apiSubmitCoachPositions,
   apiSubmitJudgeBallot,
@@ -34,7 +36,7 @@ import {
   apiUpdateTeam,
   apiUpdateUserAccount,
 } from './lib/api'
-import type { ApiUser, CoachDashboard, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
+import type { ApiUser, CoachDashboard, EnrollmentImportPreview, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
   { role: '管理员', username: 'admin', password: 'admin123456' },
@@ -422,6 +424,11 @@ function StaffWorkspace({
   const [campEndsOn, setCampEndsOn] = useState('')
   const [teamName, setTeamName] = useState('')
   const [teamCoachId, setTeamCoachId] = useState('')
+  const [bulkTeamName, setBulkTeamName] = useState('')
+  const [bulkTeamCoachId, setBulkTeamCoachId] = useState('')
+  const [bulkTeamNicknames, setBulkTeamNicknames] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importPreview, setImportPreview] = useState<EnrollmentImportPreview | null>(null)
   const [studentName, setStudentName] = useState('')
   const [studentPhone, setStudentPhone] = useState('')
   const [studentNickname, setStudentNickname] = useState('')
@@ -457,8 +464,9 @@ function StaffWorkspace({
     if (firstTeam && !affirmativeTeamId) setAffirmativeTeamId(String(firstTeam.id))
     if (secondTeam && !negativeTeamId) setNegativeTeamId(String(secondTeam.id))
     if (operations.coaches[0] && !teamCoachId) setTeamCoachId(String(operations.coaches[0].id))
+    if (operations.coaches[0] && !bulkTeamCoachId) setBulkTeamCoachId(String(operations.coaches[0].id))
     if (operations.teams[0] && !studentTeamId) setStudentTeamId(String(operations.teams[0].id))
-  }, [affirmativeTeamId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
+  }, [affirmativeTeamId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
 
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
@@ -536,6 +544,45 @@ function StaffWorkspace({
       })
       setTeamName('')
       return '队伍已创建并分配教练。'
+    })
+  }
+
+  async function previewEnrollmentImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !importFile) return
+    await save(async () => {
+      const preview = await apiImportEnrollments(token, activeCamp.id, importFile, false)
+      setImportPreview(preview)
+      return `已预览 ${preview.total} 位学员：新增 ${preview.new_student_count}，匹配已有 ${preview.matched_student_count}。`
+    })
+  }
+
+  async function commitEnrollmentImport() {
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !importFile || !importPreview || importPreview.errors.length) return
+    await save(async () => {
+      const result = await apiImportEnrollments(token, activeCamp.id, importFile, true)
+      setImportPreview(result)
+      setImportFile(null)
+      return `已导入 ${result.total} 位本期学员。`
+    })
+  }
+
+  async function submitBulkTeam(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !bulkTeamName || !bulkTeamCoachId || !bulkTeamNicknames) return
+    await save(async () => {
+      await apiCreateTeamFromNicknames(token, {
+        camp: activeCamp.id,
+        coach: Number(bulkTeamCoachId),
+        name: bulkTeamName,
+        nicknames: bulkTeamNicknames,
+      })
+      setBulkTeamName('')
+      setBulkTeamNicknames('')
+      return '队伍已创建，7-8 位学员已归队。'
     })
   }
 
@@ -767,7 +814,96 @@ function StaffWorkspace({
         <div className="grid gap-5 xl:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>创建队伍</CardTitle>
+              <CardTitle>Excel 导入本期学员</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-3" onSubmit={previewEnrollmentImport}>
+                <input
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(event) => {
+                    setImportFile(event.target.files?.[0] ?? null)
+                    setImportPreview(null)
+                  }}
+                />
+                <div className="flex flex-wrap gap-3">
+                  <Button type="submit" disabled={isSaving || !importFile}>预览导入</Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSaving || !importFile || !importPreview || Boolean(importPreview.errors.length)}
+                    onClick={commitEnrollmentImport}
+                  >
+                    确认导入
+                  </Button>
+                </div>
+              </form>
+              {importPreview ? (
+                <div className="mt-5 rounded-md border border-slate-200 px-4 py-3">
+                  <div className="grid gap-3 text-sm md:grid-cols-3">
+                    <p>总行数：<span className="font-semibold">{importPreview.total}</span></p>
+                    <p>新增学员：<span className="font-semibold">{importPreview.new_student_count}</span></p>
+                    <p>匹配已有：<span className="font-semibold">{importPreview.matched_student_count}</span></p>
+                  </div>
+                  {importPreview.errors.length ? (
+                    <div className="mt-4 grid gap-2">
+                      {importPreview.errors.slice(0, 6).map((error) => (
+                        <p key={error.row} className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                          第 {error.row} 行：{error.messages.join('；')}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      校验通过，可以确认导入。
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>按昵称批量创建队伍</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-3" onSubmit={submitBulkTeam}>
+                <input
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="队伍名称"
+                  value={bulkTeamName}
+                  onChange={(event) => setBulkTeamName(event.target.value)}
+                />
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  value={bulkTeamCoachId}
+                  onChange={(event) => setBulkTeamCoachId(event.target.value)}
+                >
+                  <option value="">选择教练</option>
+                  {operations?.coaches.map((coach) => (
+                    <option key={coach.id} value={coach.id}>{coach.name}</option>
+                  ))}
+                </select>
+                <textarea
+                  className="min-h-32 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  placeholder={'每行一个本期昵称，必须 7-8 人\njimmy\n洋子\n大林\nTing'}
+                  value={bulkTeamNicknames}
+                  onChange={(event) => setBulkTeamNicknames(event.target.value)}
+                />
+                <Button type="submit" disabled={isSaving || !bulkTeamName || !bulkTeamCoachId || !bulkTeamNicknames}>
+                  创建队伍并归队
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>空队伍创建</CardTitle>
             </CardHeader>
             <CardContent>
               <form className="grid gap-3" onSubmit={submitTeam}>
@@ -787,7 +923,7 @@ function StaffWorkspace({
                     <option key={coach.id} value={coach.id}>{coach.name}</option>
                   ))}
                 </select>
-                <Button type="submit" disabled={isSaving || !teamName || !teamCoachId}>创建队伍</Button>
+                <Button type="submit" disabled={isSaving || !teamName || !teamCoachId}>创建空队伍</Button>
               </form>
             </CardContent>
           </Card>

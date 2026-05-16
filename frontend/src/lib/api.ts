@@ -242,6 +242,26 @@ export type JudgeBallotPayload = {
   }>
 }
 
+export type EnrollmentImportPreview = {
+  total: number
+  new_student_count: number
+  matched_student_count: number
+  committed: boolean
+  rows: Array<{
+    row: number
+    real_name: string
+    nickname: string
+    phone: string
+    matched_student_id: number | null
+    status: 'new' | 'matched'
+    errors: string[]
+  }>
+  errors: Array<{
+    row: number
+    messages: string[]
+  }>
+}
+
 type LoginResponse = {
   token: string
   user: ApiUser
@@ -363,6 +383,32 @@ export async function apiCreateEnrollment(
   payload: { camp: number; student: number; nickname: string; team: number | null },
 ) {
   return apiWrite('/api/camps/enrollments/', token, 'POST', payload)
+}
+
+export async function apiImportEnrollments(token: string, campId: number, file: File, commit: boolean) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('commit', String(commit))
+
+  const response = await fetch(`${API_BASE_URL}/api/camps/camps/${campId}/import_enrollments/`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+    body: formData,
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(payload ? JSON.stringify(payload) : '导入失败，请检查 Excel。')
+  }
+  return payload as EnrollmentImportPreview
+}
+
+export async function apiCreateTeamFromNicknames(
+  token: string,
+  payload: { camp: number; coach: number; name: string; nicknames: string },
+) {
+  return apiWrite('/api/camps/teams/create_from_nicknames/', token, 'POST', payload)
 }
 
 export async function apiCreateUserAccount(
