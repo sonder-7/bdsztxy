@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import CompetitionVenueViewSet, DebatePositionViewSet, IntegralRoundViewSet, JudgeMatchViewSet, MatchViewSet
+from .views import CoachMatchViewSet, CompetitionVenueViewSet, DebatePositionViewSet, IntegralRoundViewSet, JudgeMatchViewSet, MatchViewSet
 
 router = DefaultRouter()
 router.register("rounds", IntegralRoundViewSet, basename="integral-round")
@@ -9,6 +9,7 @@ router.register("venues", CompetitionVenueViewSet, basename="competition-venue")
 router.register("matches", MatchViewSet, basename="match")
 router.register("positions", DebatePositionViewSet, basename="debate-position")
 router.register("judge/matches", JudgeMatchViewSet, basename="judge-match")
+router.register("coach/matches", CoachMatchViewSet, basename="coach-match")
 
 urlpatterns = [
     path("", include(router.urls)),

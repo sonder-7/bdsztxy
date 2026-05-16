@@ -15,6 +15,8 @@ def _match_review_summary(match):
     draft_ballots = [ballot for ballot in ballots if not ballot.submitted_at]
     positions = list(match.positions.all())
     positions_by_id = {position.id: position for position in positions}
+    affirmative_position_count = sum(1 for position in positions if position.side == DebateSide.AFFIRMATIVE)
+    negative_position_count = sum(1 for position in positions if position.side == DebateSide.NEGATIVE)
     expected_score_count = len(assigned_judges) * len(positions)
     submitted_score_count = sum(ballot.position_scores.count() for ballot in submitted_ballots)
     position_score_totals = {DebateSide.AFFIRMATIVE: 0.0, DebateSide.NEGATIVE: 0.0}
@@ -61,6 +63,9 @@ def _match_review_summary(match):
         "negative_team_name": match.negative_team.name,
         "assigned_judge_count": len(assigned_judges),
         "assigned_judge_names": [judge.name for judge in assigned_judges],
+        "affirmative_position_count": affirmative_position_count,
+        "negative_position_count": negative_position_count,
+        "positions_are_complete": affirmative_position_count == 4 and negative_position_count == 4,
         "submitted_ballot_count": len(submitted_ballots),
         "draft_ballot_count": len(draft_ballots),
         "pending_ballot_count": max(len(assigned_judges) - len(ballots), 0),

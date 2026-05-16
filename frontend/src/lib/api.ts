@@ -71,6 +71,9 @@ export type OperationsDashboard = {
     negative_team_name: string
     assigned_judge_count: number
     assigned_judge_names: string[]
+    affirmative_position_count: number
+    negative_position_count: number
+    positions_are_complete: boolean
     submitted_ballot_count: number
     draft_ballot_count: number
     pending_ballot_count: number
@@ -99,6 +102,46 @@ export type OperationsDashboard = {
       score: number
     }>
     total: number
+  }>
+}
+
+export type CoachDashboard = {
+  team: {
+    id: number
+    name: string
+    camp: number
+    camp_name: string
+    coach_name: string
+  }
+  members: Array<{
+    id: number
+    nickname: string
+    student_name: string
+  }>
+  matches: Array<{
+    id: number
+    round_number: number
+    topic: string
+    venue_name: string
+    sequence: number
+    starts_at: string
+    affirmative_team_name: string
+    negative_team_name: string
+    coach_side: 'affirmative' | 'negative'
+    coach_team_name: string
+    positions: Array<{
+      id: number
+      side: 'affirmative' | 'negative'
+      position_number: number
+      enrollment: number
+      enrollment_nickname: string
+      coach_note: string
+    }>
+    position_completion: {
+      completed: number
+      required: number
+      is_complete: boolean
+    }
   }>
 }
 
@@ -210,6 +253,20 @@ export async function apiGetJudgeMatches(token: string): Promise<JudgeMatch[]> {
   return response.json()
 }
 
+export async function apiGetCoachDashboard(token: string): Promise<CoachDashboard> {
+  const response = await fetch(`${API_BASE_URL}/api/competitions/coach/matches/`, {
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('无法读取教练工作台数据。')
+  }
+
+  return response.json()
+}
+
 async function apiWrite<T>(path: string, token: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -257,4 +314,12 @@ export async function apiCreateMatch(
 
 export async function apiSubmitJudgeBallot(token: string, matchId: number, payload: JudgeBallotPayload) {
   return apiWrite<JudgeMatch>(`/api/competitions/judge/matches/${matchId}/submit_ballot/`, token, 'POST', payload)
+}
+
+export async function apiSubmitCoachPositions(
+  token: string,
+  matchId: number,
+  positions: Array<{ position_number: number; enrollment: number; coach_note: string }>,
+) {
+  return apiWrite<CoachDashboard['matches'][number]>(`/api/competitions/coach/matches/${matchId}/submit_positions/`, token, 'POST', { positions })
 }

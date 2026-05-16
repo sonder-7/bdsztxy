@@ -2,7 +2,9 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import BestSpeakerVote, CompetitionVenue, DebatePosition, IntegralRound, JudgeBallot, Match, PositionScore
+from camps.models import CampEnrollment
+
+from .models import BestSpeakerVote, CompetitionVenue, DebatePosition, DebateSide, IntegralRound, JudgeBallot, Match, PositionScore
 
 
 class IntegralRoundSerializer(serializers.ModelSerializer):
@@ -214,3 +216,107 @@ class JudgeBallotSubmitSerializer(serializers.Serializer):
             )
 
         return ballot
+
+
+class CoachTeamMemberSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.real_name", read_only=True)
+
+    class Meta:
+        model = CampEnrollment
+        fields = ["id", "nickname", "student_name"]
+
+
+class CoachMatchPositionSerializer(serializers.ModelSerializer):
+    enrollment_nickname = serializers.CharField(source="enrollment.nickname", read_only=True)
+
+    class Meta:
+        model = DebatePosition
+        fields = ["id", "side", "position_number", "enrollment", "enrollment_nickname", "coach_note"]
+
+
+class CoachMatchSerializer(serializers.ModelSerializer):
+    round_number = serializers.IntegerField(source="integral_round.number", read_only=True)
+    topic = serializers.CharField(source="integral_round.topic", read_only=True)
+    venue_name = serializers.CharField(source="venue.name", read_only=True)
+    affirmative_team_name = serializers.CharField(source="affirmative_team.name", read_only=True)
+    negative_team_name = serializers.CharField(source="negative_team.name", read_only=True)
+    coach_side = serializers.SerializerMethodField()
+    coach_team_name = serializers.SerializerMethodField()
+    positions = serializers.SerializerMethodField()
+    position_completion = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Match
+        fields = [
+            "id",
+            "round_number",
+            "topic",
+            "venue_name",
+            "sequence",
+            "starts_at",
+            "affirmative_team_name",
+            "negative_team_name",
+            "coach_side",
+            "coach_team_name",
+            "positions",
+            "position_completion",
+        ]
+
+    def _coach_team(self):
+        return self.context["team"]
+
+    def get_coach_side(self, obj):
+        team = self._coach_team()
+        if obj.affirmative_team_id == team.id:
+            return DebateSide.AFFIRMATIVE
+        return DebateSide.NEGATIVE
+
+    def get_coach_team_name(self, obj):
+        return self._coach_team().name
+
+    def get_positions(self, obj):
+        side = self.get_coach_side(obj)
+        positions = [position for position in obj.positions.all() if position.side == side]
+        return CoachMatchPositionSerializer(positions, many=True).data
+
+    def get_position_completion(self, obj):
+        side = self.get_coach_side(obj)
+        completed = sum(1 for position in obj.positions.all() if position.side == side)
+        return {"completed": completed, "required": 4, "is_complete": completed == 4}
+
+
+class CoachPositionInputSerializer(serializers.Serializer):
+    position_number = serializers.IntegerField(min_value=1, max_value=4)
+    enrollment = serializers.IntegerField()
+    coach_note = serializers.CharField(allow_blank=True, required=False)
+
+
+class CoachPositionsSubmitSerializer(serializers.Serializer):
+    positions = CoachPositionInputSerializer(many=True)
+
+    def validate(self, attrs):
+        team = self.context["team"]
+        enrollment_ids = set(team.members.values_list("id", flat=True))
+        position_numbers = [item["position_number"] for item in attrs["positions"]]
+
+        if sorted(position_numbers) != [1, 2, 3, 4]:
+            raise serializers.ValidationError("必须录入一辩、二辩、三辩、四辩。")
+        if any(item["enrollment"] not in enrollment_ids for item in attrs["positions"]):
+            raise serializers.ValidationError("辩位只能选择本队队员。")
+        return attrs
+
+    def save(self, **kwargs):
+        match = self.context["match"]
+        side = self.context["side"]
+        with transaction.atomic():
+            for item in self.validated_data["positions"]:
+                DebatePosition.objects.update_or_create(
+                    match=match,
+                    side=side,
+                    position_number=item["position_number"],
+                    defaults={
+                        "enrollment_id": item["enrollment"],
+                        "coach_note": item.get("coach_note", ""),
+                    },
+                )
+        return match

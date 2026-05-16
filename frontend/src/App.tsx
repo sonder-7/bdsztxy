@@ -16,13 +16,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
 import {
   apiCreateMatch,
   apiCreateVenue,
+  apiGetCoachDashboard,
   apiGetJudgeMatches,
   apiGetOperationsDashboard,
   apiLogin,
+  apiSubmitCoachPositions,
   apiSubmitJudgeBallot,
   apiUpdateRoundTopic,
 } from './lib/api'
-import type { ApiUser, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
+import type { ApiUser, CoachDashboard, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
   { role: '管理员', username: 'admin', password: 'admin123456' },
@@ -67,6 +69,9 @@ function App() {
   const [judgeMatches, setJudgeMatches] = useState<JudgeMatch[]>([])
   const [judgeReloadKey, setJudgeReloadKey] = useState(0)
   const [judgeError, setJudgeError] = useState('')
+  const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | null>(null)
+  const [coachReloadKey, setCoachReloadKey] = useState(0)
+  const [coachError, setCoachError] = useState('')
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123456')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -130,6 +135,32 @@ function App() {
     }
   }, [judgeReloadKey, token, user])
 
+  useEffect(() => {
+    if (!token || !user || user.role !== 'coach') {
+      setCoachDashboard(null)
+      setCoachError('')
+      return
+    }
+
+    let isMounted = true
+    apiGetCoachDashboard(token)
+      .then((data) => {
+        if (isMounted) {
+          setCoachDashboard(data)
+          setCoachError('')
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setCoachError(err instanceof Error ? err.message : '无法读取教练工作台数据。')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [coachReloadKey, token, user])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -168,6 +199,7 @@ function App() {
                   setSelectedMatchId(null)
                   setOperations(null)
                   setJudgeMatches([])
+                  setCoachDashboard(null)
                 }}
               >
                 <LogOut data-icon="inline-start" />
@@ -193,6 +225,13 @@ function App() {
               error={operationsError}
               token={token}
               onRefresh={() => setOperationsReloadKey((value) => value + 1)}
+            />
+          ) : user.role === 'coach' ? (
+            <CoachWorkspace
+              dashboard={coachDashboard}
+              error={coachError}
+              token={token}
+              onRefresh={() => setCoachReloadKey((value) => value + 1)}
             />
           ) : (
           <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
@@ -727,6 +766,12 @@ function StaffWorkspace({
 
                     <div className="mt-4 grid gap-3 md:grid-cols-4">
                       <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">辩位录入</p>
+                        <p className="mt-1 font-semibold">
+                          正 {review.affirmative_position_count}/4 · 反 {review.negative_position_count}/4
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
                         <p className="text-xs text-slate-500">评委提交</p>
                         <p className="mt-1 font-semibold">
                           {review.submitted_ballot_count}/{review.assigned_judge_count}
@@ -744,7 +789,7 @@ function StaffWorkspace({
                           {review.submitted_score_count}/{review.expected_score_count}
                         </p>
                       </div>
-                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                      <div className="rounded-md bg-slate-50 px-3 py-2 md:col-span-2">
                         <p className="text-xs text-slate-500">评委</p>
                         <p className="mt-1 truncate text-sm font-semibold">
                           {review.assigned_judge_names.join('、') || '暂未分配'}
@@ -859,6 +904,233 @@ function StaffWorkspace({
         </Card>
       </section>
     </section>
+  )
+}
+
+function CoachWorkspace({
+  dashboard,
+  error,
+  token,
+  onRefresh,
+}: {
+  dashboard: CoachDashboard | null
+  error: string
+  token: string | null
+  onRefresh: () => void
+}) {
+  return (
+    <section className="flex flex-1 flex-col gap-5 py-8">
+      <div>
+        <h2 className="text-xl font-semibold tracking-normal">教练工作台</h2>
+        <p className="mt-2 text-sm text-slate-500">查看本队队员，并为每场积分赛录入本队四个辩位和评委可见备注。</p>
+      </div>
+
+      {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard label="当前队伍" value={dashboard?.team.name ?? '读取中'} />
+        <MetricCard label="所属营期" value={dashboard?.team.camp_name ?? '读取中'} />
+        <MetricCard label="待处理比赛" value={String(dashboard?.matches.filter((match) => !match.position_completion.is_complete).length ?? 0)} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>我的队员</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-4">
+            {dashboard?.members.length ? (
+              dashboard.members.map((member) => (
+                <div key={member.id} className="rounded-md border border-slate-200 px-4 py-3">
+                  <p className="font-semibold">{member.nickname}</p>
+                  <p className="mt-1 text-xs text-slate-500">{member.student_name}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">暂无队员数据。</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5">
+        {dashboard?.matches.length ? (
+          dashboard.matches.map((match) => (
+            <CoachMatchCard
+              key={match.id}
+              match={match}
+              members={dashboard.members}
+              token={token}
+              onRefresh={onRefresh}
+            />
+          ))
+        ) : (
+          <Card>
+            <CardContent>
+              <p className="text-sm text-slate-500">当前队伍暂无积分赛比赛。</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function CoachMatchCard({
+  match,
+  members,
+  token,
+  onRefresh,
+}: {
+  match: CoachDashboard['matches'][number]
+  members: CoachDashboard['members']
+  token: string | null
+  onRefresh: () => void
+}) {
+  const [positionForms, setPositionForms] = useState<Record<number, { enrollment: string; coachNote: string }>>({})
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    const positionsByNumber = new Map(match.positions.map((position) => [position.position_number, position]))
+    setPositionForms(
+      Object.fromEntries(
+        [1, 2, 3, 4].map((positionNumber) => {
+          const position = positionsByNumber.get(positionNumber)
+          return [
+            positionNumber,
+            {
+              enrollment: position?.enrollment ? String(position.enrollment) : '',
+              coachNote: position?.coach_note ?? '',
+            },
+          ]
+        }),
+      ),
+    )
+    setMessage('')
+    setError('')
+  }, [match])
+
+  function updatePosition(positionNumber: number, field: 'enrollment' | 'coachNote', value: string) {
+    setPositionForms((current) => ({
+      ...current,
+      [positionNumber]: {
+        ...current[positionNumber],
+        [field]: value,
+      },
+    }))
+  }
+
+  async function savePositions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token) return
+    if ([1, 2, 3, 4].some((positionNumber) => !positionForms[positionNumber]?.enrollment)) {
+      setError('请完整选择一辩、二辩、三辩、四辩。')
+      return
+    }
+
+    setIsSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      await apiSubmitCoachPositions(
+        token,
+        match.id,
+        [1, 2, 3, 4].map((positionNumber) => ({
+          position_number: positionNumber,
+          enrollment: Number(positionForms[positionNumber].enrollment),
+          coach_note: positionForms[positionNumber].coachNote,
+        })),
+      )
+      setMessage('辩位已保存。')
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败，请检查输入。')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const sideLabel = match.coach_side === 'affirmative' ? '正方' : '反方'
+  const sideClass =
+    match.coach_side === 'affirmative'
+      ? 'border-red-100 bg-red-50 text-red-900'
+      : 'border-blue-100 bg-blue-50 text-blue-900'
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场</CardTitle>
+            <p className="mt-2 text-sm text-slate-500">{match.starts_at.slice(0, 5)} · {match.topic || '暂未设置辩题'}</p>
+          </div>
+          <span
+            className={
+              match.position_completion.is_complete
+                ? 'rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700'
+                : 'rounded-md bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700'
+            }
+          >
+            {match.position_completion.completed}/{match.position_completion.required} 已录入
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className={match.coach_side === 'affirmative' ? 'rounded-md border border-red-100 bg-red-50 px-4 py-3' : 'rounded-md border border-slate-200 px-4 py-3'}>
+            <p className="text-xs font-medium text-red-500">正方</p>
+            <p className="mt-1 font-semibold text-red-900">{match.affirmative_team_name}</p>
+          </div>
+          <div className={match.coach_side === 'negative' ? 'rounded-md border border-blue-100 bg-blue-50 px-4 py-3' : 'rounded-md border border-slate-200 px-4 py-3'}>
+            <p className="text-xs font-medium text-blue-500">反方</p>
+            <p className="mt-1 font-semibold text-blue-900">{match.negative_team_name}</p>
+          </div>
+        </div>
+
+        <div className={`mt-4 rounded-md border px-4 py-3 ${sideClass}`}>
+          <p className="text-sm font-semibold">本队本场为{sideLabel}：{match.coach_team_name}</p>
+        </div>
+
+        {error ? <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {message ? <p className="mt-4 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
+
+        <form className="mt-5 grid gap-4" onSubmit={savePositions}>
+          {[1, 2, 3, 4].map((positionNumber) => (
+            <div key={positionNumber} className="rounded-md border border-slate-200 px-4 py-3">
+              <div className="grid gap-3 md:grid-cols-[180px_1fr]">
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  {sideLabel}{positionNumber}辩
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                    value={positionForms[positionNumber]?.enrollment ?? ''}
+                    onChange={(event) => updatePosition(positionNumber, 'enrollment', event.target.value)}
+                  >
+                    <option value="">选择队员</option>
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>{member.nickname}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  评委可见备注
+                  <input
+                    className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                    placeholder="例如：重点观察开篇结构、攻防节奏等"
+                    value={positionForms[positionNumber]?.coachNote ?? ''}
+                    onChange={(event) => updatePosition(positionNumber, 'coachNote', event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+          <div className="flex justify-end">
+            <Button type="submit" disabled={isSaving}>保存本场辩位</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
 
