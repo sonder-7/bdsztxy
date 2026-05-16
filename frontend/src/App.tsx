@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import {
   BarChart3,
   ChevronLeft,
@@ -18,11 +18,8 @@ import {
   apiCreateAssessmentVenue,
   apiCreateCamp,
   apiCreateCoach,
-  apiCreateEnrollment,
   apiCreateJudge,
   apiCreateMatch,
-  apiCreateStudent,
-  apiCreateTeam,
   apiCreateTeamFromNicknames,
   apiCreateUserAccount,
   apiCreateVenue,
@@ -468,17 +465,11 @@ function StaffWorkspace({
   const [campSeason, setCampSeason] = useState('')
   const [campStartsOn, setCampStartsOn] = useState('')
   const [campEndsOn, setCampEndsOn] = useState('')
-  const [teamName, setTeamName] = useState('')
-  const [teamCoachId, setTeamCoachId] = useState('')
   const [bulkTeamName, setBulkTeamName] = useState('')
   const [bulkTeamCoachId, setBulkTeamCoachId] = useState('')
   const [bulkTeamNicknames, setBulkTeamNicknames] = useState('')
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importPreview, setImportPreview] = useState<EnrollmentImportPreview | null>(null)
-  const [studentName, setStudentName] = useState('')
-  const [studentPhone, setStudentPhone] = useState('')
-  const [studentNickname, setStudentNickname] = useState('')
-  const [studentTeamId, setStudentTeamId] = useState('')
   const [accountUsername, setAccountUsername] = useState('')
   const [accountPassword, setAccountPassword] = useState('')
   const [accountRole, setAccountRole] = useState<'admin' | 'staff' | 'coach' | 'judge'>('staff')
@@ -498,6 +489,9 @@ function StaffWorkspace({
   const [assessmentCoachIds, setAssessmentCoachIds] = useState<string[]>([])
   const [assessmentVenueId, setAssessmentVenueId] = useState('')
   const [assessmentEnrollmentId, setAssessmentEnrollmentId] = useState('')
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
   const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
   const venuesForSelectedRound = operations?.venues.filter(
@@ -562,12 +556,10 @@ function StaffWorkspace({
     if (!matchSequence) setMatchSequence(String((operations.matches.length || 0) + 1))
     if (firstTeam && !affirmativeTeamId) setAffirmativeTeamId(String(firstTeam.id))
     if (secondTeam && !negativeTeamId) setNegativeTeamId(String(secondTeam.id))
-    if (operations.coaches[0] && !teamCoachId) setTeamCoachId(String(operations.coaches[0].id))
     if (operations.coaches[0] && !bulkTeamCoachId) setBulkTeamCoachId(String(operations.coaches[0].id))
-    if (operations.teams[0] && !studentTeamId) setStudentTeamId(String(operations.teams[0].id))
     if (operations.assessmentVenues[0] && !assessmentVenueId) setAssessmentVenueId(String(operations.assessmentVenues[0].id))
     if (operations.enrollments[0] && !assessmentEnrollmentId) setAssessmentEnrollmentId(String(operations.enrollments[0].id))
-  }, [affirmativeTeamId, assessmentEnrollmentId, assessmentVenueId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
+  }, [affirmativeTeamId, assessmentEnrollmentId, assessmentVenueId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, topicRoundId, venueRoundId])
 
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
@@ -686,21 +678,6 @@ function StaffWorkspace({
     })
   }
 
-  async function submitTeam(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const activeCamp = operations?.activeCamp
-    if (!token || !activeCamp || !teamName || !teamCoachId) return
-    await save(async () => {
-      await apiCreateTeam(token, {
-        camp: activeCamp.id,
-        name: teamName,
-        coach: Number(teamCoachId),
-      })
-      setTeamName('')
-      return '队伍已创建并分配教练。'
-    })
-  }
-
   async function previewEnrollmentImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const activeCamp = operations?.activeCamp
@@ -719,6 +696,7 @@ function StaffWorkspace({
       const result = await apiImportEnrollments(token, activeCamp.id, importFile, true)
       setImportPreview(result)
       setImportFile(null)
+      setIsImportModalOpen(false)
       return `已导入 ${result.total} 位本期学员。`
     })
   }
@@ -736,26 +714,8 @@ function StaffWorkspace({
       })
       setBulkTeamName('')
       setBulkTeamNicknames('')
+      setIsTeamModalOpen(false)
       return '队伍已创建，7-8 位学员已归队。'
-    })
-  }
-
-  async function submitStudent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const activeCamp = operations?.activeCamp
-    if (!token || !activeCamp || !studentName || !studentNickname) return
-    await save(async () => {
-      const student = await apiCreateStudent(token, { real_name: studentName, phone: studentPhone, note: '' })
-      await apiCreateEnrollment(token, {
-        camp: activeCamp.id,
-        student: student.id,
-        nickname: studentNickname,
-        team: studentTeamId ? Number(studentTeamId) : null,
-      })
-      setStudentName('')
-      setStudentPhone('')
-      setStudentNickname('')
-      return '学员已录入并加入当前营期。'
     })
   }
 
@@ -787,6 +747,7 @@ function StaffWorkspace({
       setAccountUsername('')
       setAccountPassword('')
       setAccountDisplayName('')
+      setIsAccountModalOpen(false)
       return accountRole === 'coach' || accountRole === 'judge'
         ? '人员档案和账号已创建。'
         : '账号已创建。'
@@ -970,238 +931,56 @@ function StaffWorkspace({
             </Card>
           ) : null}
 
-          {isAdmin && activeSection === 'system' ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>创建人员账号</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form className="grid gap-3" onSubmit={submitAccount}>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <input
-                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="姓名"
-                      value={accountDisplayName}
-                      onChange={(event) => setAccountDisplayName(event.target.value)}
-                    />
-                    <select
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                      value={accountRole}
-                      onChange={(event) => setAccountRole(event.target.value as 'admin' | 'staff' | 'coach' | 'judge')}
-                    >
-                      <option value="staff">工作人员</option>
-                      <option value="coach">教练</option>
-                      <option value="judge">评委</option>
-                      <option value="admin">管理员</option>
-                    </select>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                    <input
-                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="账号"
-                      value={accountUsername}
-                      onChange={(event) => setAccountUsername(event.target.value)}
-                    />
-                    <input
-                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="密码"
-                      type="password"
-                      value={accountPassword}
-                      onChange={(event) => setAccountPassword(event.target.value)}
-                    />
-                    <Button type="submit" disabled={isSaving || !accountUsername || !accountPassword || !accountDisplayName}>
-                      创建
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          ) : null}
-          </div>
-        ) : null}
-
-        {activeSection === 'camp-students' || activeSection === 'teams-coaches' ? (
-          <div className="grid gap-5 xl:grid-cols-2">
-          {activeSection === 'camp-students' ? (
-            <Card>
-            <CardHeader>
-              <CardTitle>Excel 导入本期学员</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3" onSubmit={previewEnrollmentImport}>
-                <input
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={(event) => {
-                    setImportFile(event.target.files?.[0] ?? null)
-                    setImportPreview(null)
-                  }}
-                />
-                <div className="flex flex-wrap gap-3">
-                  <Button type="submit" disabled={isSaving || !importFile}>预览导入</Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSaving || !importFile || !importPreview || Boolean(importPreview.errors.length)}
-                    onClick={commitEnrollmentImport}
-                  >
-                    确认导入
-                  </Button>
-                </div>
-              </form>
-              {importPreview ? (
-                <div className="mt-5 rounded-md border border-slate-200 px-4 py-3">
-                  <div className="grid gap-3 text-sm md:grid-cols-3">
-                    <p>总行数：<span className="font-semibold">{importPreview.total}</span></p>
-                    <p>新增学员：<span className="font-semibold">{importPreview.new_student_count}</span></p>
-                    <p>匹配已有：<span className="font-semibold">{importPreview.matched_student_count}</span></p>
-                  </div>
-                  {importPreview.errors.length ? (
-                    <div className="mt-4 grid gap-2">
-                      {importPreview.errors.slice(0, 6).map((error) => (
-                        <p key={error.row} className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-                          第 {error.row} 行：{error.messages.join('；')}
-                        </p>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                      校验通过，可以确认导入。
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </CardContent>
-            </Card>
-          ) : null}
-
-          {activeSection === 'teams-coaches' ? (
-            <Card>
-            <CardHeader>
-              <CardTitle>按昵称批量创建队伍</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3" onSubmit={submitBulkTeam}>
-                <input
-                  className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="队伍名称"
-                  value={bulkTeamName}
-                  onChange={(event) => setBulkTeamName(event.target.value)}
-                />
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  value={bulkTeamCoachId}
-                  onChange={(event) => setBulkTeamCoachId(event.target.value)}
-                >
-                  <option value="">选择教练</option>
-                  {operations?.coaches.map((coach) => (
-                    <option key={coach.id} value={coach.id}>{coach.name}</option>
-                  ))}
-                </select>
-                <textarea
-                  className="min-h-32 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
-                  placeholder={'每行一个本期昵称，必须 7-8 人\njimmy\n洋子\n大林\nTing'}
-                  value={bulkTeamNicknames}
-                  onChange={(event) => setBulkTeamNicknames(event.target.value)}
-                />
-                <Button type="submit" disabled={isSaving || !bulkTeamName || !bulkTeamCoachId || !bulkTeamNicknames}>
-                  创建队伍并归队
-                </Button>
-              </form>
-            </CardContent>
-            </Card>
-          ) : null}
-          </div>
-        ) : null}
-
-        {activeSection === 'camp-students' || activeSection === 'teams-coaches' ? (
-          <div className="grid gap-5 xl:grid-cols-2">
-          {activeSection === 'teams-coaches' ? (
-            <Card>
-            <CardHeader>
-              <CardTitle>空队伍创建</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3" onSubmit={submitTeam}>
-                <input
-                  className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="队伍名称"
-                  value={teamName}
-                  onChange={(event) => setTeamName(event.target.value)}
-                />
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  value={teamCoachId}
-                  onChange={(event) => setTeamCoachId(event.target.value)}
-                >
-                  <option value="">选择教练</option>
-                  {operations?.coaches.map((coach) => (
-                    <option key={coach.id} value={coach.id}>{coach.name}</option>
-                  ))}
-                </select>
-                <Button type="submit" disabled={isSaving || !teamName || !teamCoachId}>创建空队伍</Button>
-              </form>
-            </CardContent>
-            </Card>
-          ) : null}
-
-          {activeSection === 'camp-students' ? (
-            <Card>
-            <CardHeader>
-              <CardTitle>录入学员并归队</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3" onSubmit={submitStudent}>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="真实姓名" value={studentName} onChange={(event) => setStudentName(event.target.value)} />
-                  <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="本期昵称" value={studentNickname} onChange={(event) => setStudentNickname(event.target.value)} />
-                </div>
-                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={studentPhone} onChange={(event) => setStudentPhone(event.target.value)} />
-                <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-                  value={studentTeamId}
-                  onChange={(event) => setStudentTeamId(event.target.value)}
-                >
-                  <option value="">暂不分队</option>
-                  {operations?.teams.map((team) => (
-                    <option key={team.id} value={team.id}>{team.name}</option>
-                  ))}
-                </select>
-                <Button type="submit" disabled={isSaving || !studentName || !studentNickname}>录入学员</Button>
-              </form>
-            </CardContent>
-            </Card>
-          ) : null}
           </div>
         ) : null}
 
         {isAdmin && activeSection === 'system' ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>账号列表</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                {operations?.users.map((account) => (
-                  <div key={account.id} className="rounded-md border border-slate-200 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{account.display_name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{account.username} · {account.role}</p>
+          <>
+            <div className="flex justify-end">
+              <Button type="button" onClick={() => setIsAccountModalOpen(true)}>创建账号</Button>
+            </div>
+            {(['admin', 'staff', 'coach', 'judge'] as const).map((role) => {
+              const accounts = operations?.users.filter((account) => account.role === role) ?? []
+              const roleLabel = { admin: '管理员', staff: '工作人员', coach: '教练', judge: '评委' }[role]
+              return (
+                <Card key={role}>
+                  <CardHeader>
+                    <CardTitle>{roleLabel}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[640px] border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-slate-500">
+                            <th className="py-2 pr-4 font-medium">姓名</th>
+                            <th className="py-2 pr-4 font-medium">账号</th>
+                            <th className="py-2 pr-4 font-medium">状态</th>
+                            <th className="py-2 pr-4 font-medium">关联档案</th>
+                            <th className="py-2 pr-4 font-medium">操作</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {accounts.map((account) => (
+                            <tr key={account.id} className="border-b border-slate-100">
+                              <td className="py-3 pr-4 font-semibold">{account.display_name}</td>
+                              <td className="py-3 pr-4">{account.username}</td>
+                              <td className="py-3 pr-4">{account.is_active ? '启用' : '停用'}</td>
+                              <td className="py-3 pr-4">{account.coach_name || account.judge_name || '无需关联'}</td>
+                              <td className="py-3 pr-4">
+                                <Button type="button" variant="outline" onClick={() => toggleAccount(account.id, account.is_active)}>
+                                  {account.is_active ? '停用' : '启用'}
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <Button type="button" variant="outline" onClick={() => toggleAccount(account.id, account.is_active)}>
-                      {account.is_active ? '停用' : '启用'}
-                    </Button>
-                  </div>
-                  <p className="mt-3 text-sm text-slate-600">
-                    绑定：{account.coach_name || account.judge_name || '无需绑定'}
-                  </p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </>
         ) : null}
 
         {activeSection === 'assessment' ? (
@@ -1980,13 +1759,14 @@ function StaffWorkspace({
 
         {activeSection === 'teams-coaches' ? (
         <>
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
           <input
-            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+            className="h-10 min-w-72 flex-1 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
             placeholder="搜索队伍或教练"
             value={teamSearch}
             onChange={(event) => setTeamSearch(event.target.value)}
           />
+          <Button type="button" onClick={() => setIsTeamModalOpen(true)}>创建队伍</Button>
         </div>
 
         <Card>
@@ -1994,56 +1774,56 @@ function StaffWorkspace({
             <CardTitle>队伍列表</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-2">
-              {filteredTeams.map((team) => {
-                const members = operations?.enrollments.filter((enrollment) => enrollment.team === team.id) ?? []
-                const teamMatches = operations?.matches.filter(
-                  (match) => match.affirmative_team === team.id || match.negative_team === team.id,
-                ) ?? []
-                return (
-                <div key={team.id} className="rounded-md border border-slate-200 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{team.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        教练：{team.coach_name} · 队员：{team.member_count} 人
-                        {team.member_count < 7 || team.member_count > 8 ? ' · 人数需调整' : ''}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        const name = window.prompt('队伍名称', team.name)
-                        if (!name) return
-                        quickUpdateTeam(team.id, name, team.coach)
-                      }}
-                    >
-                      编辑
-                    </Button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {members.length ? members.map((member) => (
-                      <span key={member.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                        {member.nickname}
-                      </span>
-                    )) : <span className="text-xs text-slate-400">暂无队员</span>}
-                  </div>
-                  <div className="mt-3 grid gap-2">
-                    {teamMatches.length ? teamMatches.map((match) => (
-                      <div key={match.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                        积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场 ·
-                        <span className={match.affirmative_team === team.id ? 'ml-1 font-medium text-red-700' : 'ml-1 font-medium text-blue-700'}>
-                          {match.affirmative_team === team.id ? '正方' : '反方'}
-                        </span>
-                      </div>
-                    )) : <p className="text-xs text-slate-400">暂无比赛安排</p>}
-                  </div>
-                </div>
-                )
-              })}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2 pr-4 font-medium">队名</th>
+                    <th className="py-2 pr-4 font-medium">教练</th>
+                    <th className="py-2 pr-4 font-medium">人数</th>
+                    <th className="py-2 pr-4 font-medium">学员昵称</th>
+                    <th className="py-2 pr-4 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTeams.map((team) => {
+                    const members = operations?.enrollments.filter((enrollment) => enrollment.team === team.id) ?? []
+                    return (
+                      <tr key={team.id} className="border-b border-slate-100">
+                        <td className="py-3 pr-4 font-semibold">{team.name}</td>
+                        <td className="py-3 pr-4">{team.coach_name}</td>
+                        <td className="py-3 pr-4">
+                          {team.member_count}
+                          {team.member_count < 7 || team.member_count > 8 ? <span className="ml-2 text-amber-600">需调整</span> : null}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="flex flex-wrap gap-2">
+                            {members.map((member) => (
+                              <span key={member.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                                {member.nickname}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              const name = window.prompt('队伍名称', team.name)
+                              if (!name) return
+                              quickUpdateTeam(team.id, name, team.coach)
+                            }}
+                          >
+                            编辑
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-            <p className="mt-5 text-xs text-slate-400">Token 已建立：{token?.slice(0, 8)}...</p>
           </CardContent>
         </Card>
         </>
@@ -2051,42 +1831,54 @@ function StaffWorkspace({
 
         {activeSection === 'camp-students' ? (
         <>
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
           <input
-            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+            className="h-10 min-w-72 flex-1 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
             placeholder="搜索本期昵称、真实姓名、电话或队伍"
             value={studentSearch}
             onChange={(event) => setStudentSearch(event.target.value)}
           />
+          <Button type="button" onClick={() => setIsImportModalOpen(true)}>Excel 导入本期学员</Button>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>学员归队表</CardTitle>
+            <CardTitle>学员列表</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-2">
-              {filteredEnrollments.map((enrollment) => (
-                <div key={enrollment.id} className="rounded-md border border-slate-200 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{enrollment.nickname}</p>
-                      <p className="mt-1 text-xs text-slate-500">{enrollment.student_name} · {enrollment.team_name || '暂未分队'}</p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        const nickname = window.prompt('本期昵称', enrollment.nickname)
-                        if (!nickname) return
-                        quickUpdateEnrollment(enrollment.id, nickname, enrollment.team)
-                      }}
-                    >
-                      编辑
-                    </Button>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2 pr-4 font-medium">本期昵称</th>
+                    <th className="py-2 pr-4 font-medium">真实姓名</th>
+                    <th className="py-2 pr-4 font-medium">队伍</th>
+                    <th className="py-2 pr-4 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEnrollments.map((enrollment) => (
+                    <tr key={enrollment.id} className="border-b border-slate-100">
+                      <td className="py-3 pr-4 font-semibold">{enrollment.nickname}</td>
+                      <td className="py-3 pr-4">{enrollment.student_name}</td>
+                      <td className="py-3 pr-4">{enrollment.team_name || '暂未分队'}</td>
+                      <td className="py-3 pr-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const nickname = window.prompt('本期昵称', enrollment.nickname)
+                            if (!nickname) return
+                            quickUpdateEnrollment(enrollment.id, nickname, enrollment.team)
+                          }}
+                        >
+                          编辑
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
@@ -2138,8 +1930,161 @@ function StaffWorkspace({
         </Card>
         </>
         ) : null}
+
+        <Modal title="创建账号" isOpen={isAccountModalOpen} onClose={() => setIsAccountModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={submitAccount}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                placeholder="姓名"
+                value={accountDisplayName}
+                onChange={(event) => setAccountDisplayName(event.target.value)}
+              />
+              <select
+                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                value={accountRole}
+                onChange={(event) => setAccountRole(event.target.value as 'admin' | 'staff' | 'coach' | 'judge')}
+              >
+                <option value="staff">工作人员</option>
+                <option value="coach">教练</option>
+                <option value="judge">评委</option>
+                <option value="admin">管理员</option>
+              </select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                placeholder="账号"
+                value={accountUsername}
+                onChange={(event) => setAccountUsername(event.target.value)}
+              />
+              <input
+                className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                placeholder="密码"
+                type="password"
+                value={accountPassword}
+                onChange={(event) => setAccountPassword(event.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setIsAccountModalOpen(false)}>取消</Button>
+              <Button type="submit" disabled={isSaving || !accountUsername || !accountPassword || !accountDisplayName}>创建</Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal title="Excel 导入本期学员" isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={previewEnrollmentImport}>
+            <input
+              className="rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(event) => {
+                setImportFile(event.target.files?.[0] ?? null)
+                setImportPreview(null)
+              }}
+            />
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button type="submit" disabled={isSaving || !importFile}>预览导入</Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSaving || !importFile || !importPreview || Boolean(importPreview.errors.length)}
+                onClick={commitEnrollmentImport}
+              >
+                确认导入
+              </Button>
+            </div>
+          </form>
+          {importPreview ? (
+            <div className="mt-5 rounded-md border border-slate-200 px-4 py-3">
+              <div className="grid gap-3 text-sm md:grid-cols-3">
+                <p>总行数：<span className="font-semibold">{importPreview.total}</span></p>
+                <p>新增学员：<span className="font-semibold">{importPreview.new_student_count}</span></p>
+                <p>匹配已有：<span className="font-semibold">{importPreview.matched_student_count}</span></p>
+              </div>
+              {importPreview.errors.length ? (
+                <div className="mt-4 grid gap-2">
+                  {importPreview.errors.slice(0, 6).map((error) => (
+                    <p key={error.row} className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                      第 {error.row} 行：{error.messages.join('；')}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  校验通过，可以确认导入。
+                </p>
+              )}
+            </div>
+          ) : null}
+        </Modal>
+
+        <Modal title="创建队伍" isOpen={isTeamModalOpen} onClose={() => setIsTeamModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={submitBulkTeam}>
+            <input
+              className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+              placeholder="队伍名称"
+              value={bulkTeamName}
+              onChange={(event) => setBulkTeamName(event.target.value)}
+            />
+            <select
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+              value={bulkTeamCoachId}
+              onChange={(event) => setBulkTeamCoachId(event.target.value)}
+            >
+              <option value="">选择教练</option>
+              {operations?.coaches.map((coach) => (
+                <option key={coach.id} value={coach.id}>{coach.name}</option>
+              ))}
+            </select>
+            <textarea
+              className="min-h-32 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              placeholder={'每行一个本期昵称，必须 7-8 人\njimmy\n洋子\n大林\nTing'}
+              value={bulkTeamNicknames}
+              onChange={(event) => setBulkTeamNicknames(event.target.value)}
+            />
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setIsTeamModalOpen(false)}>取消</Button>
+              <Button type="submit" disabled={isSaving || !bulkTeamName || !bulkTeamCoachId || !bulkTeamNicknames}>
+                创建队伍
+              </Button>
+            </div>
+          </form>
+        </Modal>
       </section>
     </section>
+  )
+}
+
+function Modal({
+  title,
+  isOpen,
+  onClose,
+  children,
+}: {
+  title: string
+  isOpen: boolean
+  onClose: () => void
+  children: ReactNode
+}) {
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+      <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <button
+            className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+            type="button"
+            onClick={onClose}
+          >
+            关闭
+          </button>
+        </div>
+        <div className="max-h-[75vh] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
   )
 }
 
