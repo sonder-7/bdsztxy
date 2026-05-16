@@ -71,6 +71,33 @@ const roleModules: Record<string, Array<{ title: string; description: string; ic
   ],
 }
 
+type StaffSectionKey =
+  | 'overview'
+  | 'camp-students'
+  | 'teams-coaches'
+  | 'schedule'
+  | 'position-progress'
+  | 'review'
+  | 'rankings'
+  | 'system'
+
+const staffSections: Array<{
+  key: StaffSectionKey
+  title: string
+  description: string
+  icon: typeof ShieldCheck
+  adminOnly?: boolean
+}> = [
+  { key: 'overview', title: '总览', description: '查看当前营期准备状态和待处理事项。', icon: BarChart3 },
+  { key: 'camp-students', title: '营期与学员', description: '创建营期、导入学员、查看本期学员名单。', icon: UsersRound },
+  { key: 'teams-coaches', title: '队伍与教练', description: '按昵称建队、绑定教练、维护队伍信息。', icon: Swords },
+  { key: 'schedule', title: '积分赛编排', description: '设置辩题、会场、评委和三轮积分赛对阵。', icon: ClipboardCheck },
+  { key: 'position-progress', title: '辩位录入进度', description: '查看教练是否完成每场比赛的辩位录入。', icon: ShieldCheck },
+  { key: 'review', title: '积分核对 / 赛事记录', description: '汇总评委提交情况、分数、投票和最佳辩手票。', icon: ClipboardCheck },
+  { key: 'rankings', title: '排名与数据', description: '查看队伍积分榜和当前学员赛事数据。', icon: BarChart3 },
+  { key: 'system', title: '系统管理', description: '创建和停用工作人员、教练、评委、管理员账号。', icon: UsersRound, adminOnly: true },
+]
+
 function App() {
   const [user, setUser] = useState<ApiUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
@@ -232,7 +259,6 @@ function App() {
             />
           ) : ['admin', 'staff'].includes(user.role) ? (
             <StaffWorkspace
-              modules={modules}
               operations={operations}
               error={operationsError}
               token={token}
@@ -393,14 +419,12 @@ function App() {
 }
 
 function StaffWorkspace({
-  modules,
   operations,
   error,
   token,
   isAdmin,
   onRefresh,
 }: {
-  modules: Array<{ title: string; description: string; icon: typeof ShieldCheck }>
   operations: OperationsDashboard | null
   error: string
   token: string | null
@@ -440,11 +464,20 @@ function StaffWorkspace({
   const [formMessage, setFormMessage] = useState('')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [activeSection, setActiveSection] = useState<StaffSectionKey>('overview')
 
   const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
   const venuesForSelectedRound = operations?.venues.filter(
     (venue) => !matchRoundId || String(venue.integral_round) === matchRoundId,
   ) ?? []
+  const visibleSections = staffSections.filter((section) => isAdmin || !section.adminOnly)
+  const currentSection = visibleSections.find((section) => section.key === activeSection) ?? visibleSections[0]
+  const pendingReviewCount = operations?.matchReviews.filter((review) => !review.is_complete).length ?? 0
+  const pendingPositionCount =
+    operations?.matchReviews.filter(
+      (review) => review.affirmative_position_count < 4 || review.negative_position_count < 4,
+    ).length ?? 0
+  const unassignedEnrollmentCount = operations?.enrollments.filter((enrollment) => !enrollment.team).length ?? 0
 
   useEffect(() => {
     if (!operations) return
@@ -682,12 +715,19 @@ function StaffWorkspace({
     <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
       <aside className="rounded-lg border border-slate-200 bg-white p-4">
         <nav className="flex flex-col gap-2">
-          {modules.map((item) => {
+          {visibleSections.map((item) => {
             const Icon = item.icon
+            const isActive = item.key === currentSection.key
             return (
               <button
                 key={item.title}
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className={
+                  isActive
+                    ? 'flex items-center gap-3 rounded-md bg-slate-950 px-3 py-2 text-left text-sm font-medium text-white'
+                    : 'flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100'
+                }
+                type="button"
+                onClick={() => setActiveSection(item.key)}
               >
                 <Icon className="size-4" />
                 {item.title}
@@ -699,25 +739,51 @@ function StaffWorkspace({
 
       <section className="flex flex-col gap-5">
         <div>
-          <h2 className="text-xl font-semibold tracking-normal">赛事运营工作台</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            当前先接入营期、队伍、积分赛轮次、会场、评委分配和对阵数据。
-          </p>
+          <h2 className="text-xl font-semibold tracking-normal">{currentSection.title}</h2>
+          <p className="mt-2 text-sm text-slate-500">{currentSection.description}</p>
         </div>
 
         {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
         {formError ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p> : null}
         {formMessage ? <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{formMessage}</p> : null}
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <MetricCard label="当前营期" value={operations?.activeCamp?.name ?? '读取中'} />
-          <MetricCard label="队伍数" value={String(operations?.teams.length ?? 0)} />
-          <MetricCard label="评委数" value={String(operations?.judges.length ?? 0)} />
-          <MetricCard label="已录对阵" value={String(operations?.matches.length ?? 0)} />
-        </div>
+        {activeSection === 'overview' ? (
+          <>
+            <div className="grid gap-4 md:grid-cols-4">
+              <MetricCard label="当前营期" value={operations?.activeCamp?.name ?? '读取中'} />
+              <MetricCard label="队伍数" value={String(operations?.teams.length ?? 0)} />
+              <MetricCard label="评委数" value={String(operations?.judges.length ?? 0)} />
+              <MetricCard label="已录对阵" value={String(operations?.matches.length ?? 0)} />
+            </div>
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          <Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>待处理事项</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border border-amber-100 bg-amber-50 px-4 py-3">
+                    <p className="text-sm text-amber-700">待核对比赛</p>
+                    <p className="mt-2 text-2xl font-semibold text-amber-900">{pendingReviewCount}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-600">辩位未完整录入</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{pendingPositionCount}</p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-600">未分队学员</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{unassignedEnrollmentCount}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
+
+        {activeSection === 'camp-students' || activeSection === 'system' ? (
+          <div className="grid gap-5 xl:grid-cols-2">
+          {activeSection === 'camp-students' ? (
+            <Card>
             <CardHeader>
               <CardTitle>创建营期</CardTitle>
             </CardHeader>
@@ -760,9 +826,10 @@ function StaffWorkspace({
                 ))}
               </div>
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
-          {isAdmin ? (
+          {isAdmin && activeSection === 'system' ? (
             <Card>
               <CardHeader>
                 <CardTitle>创建人员账号</CardTitle>
@@ -809,10 +876,13 @@ function StaffWorkspace({
               </CardContent>
             </Card>
           ) : null}
-        </div>
+          </div>
+        ) : null}
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          <Card>
+        {activeSection === 'camp-students' || activeSection === 'teams-coaches' ? (
+          <div className="grid gap-5 xl:grid-cols-2">
+          {activeSection === 'camp-students' ? (
+            <Card>
             <CardHeader>
               <CardTitle>Excel 导入本期学员</CardTitle>
             </CardHeader>
@@ -862,9 +932,11 @@ function StaffWorkspace({
                 </div>
               ) : null}
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
-          <Card>
+          {activeSection === 'teams-coaches' ? (
+            <Card>
             <CardHeader>
               <CardTitle>按昵称批量创建队伍</CardTitle>
             </CardHeader>
@@ -897,11 +969,15 @@ function StaffWorkspace({
                 </Button>
               </form>
             </CardContent>
-          </Card>
-        </div>
+            </Card>
+          ) : null}
+          </div>
+        ) : null}
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          <Card>
+        {activeSection === 'camp-students' || activeSection === 'teams-coaches' ? (
+          <div className="grid gap-5 xl:grid-cols-2">
+          {activeSection === 'teams-coaches' ? (
+            <Card>
             <CardHeader>
               <CardTitle>空队伍创建</CardTitle>
             </CardHeader>
@@ -926,9 +1002,11 @@ function StaffWorkspace({
                 <Button type="submit" disabled={isSaving || !teamName || !teamCoachId}>创建空队伍</Button>
               </form>
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
-          <Card>
+          {activeSection === 'camp-students' ? (
+            <Card>
             <CardHeader>
               <CardTitle>录入学员并归队</CardTitle>
             </CardHeader>
@@ -952,10 +1030,12 @@ function StaffWorkspace({
                 <Button type="submit" disabled={isSaving || !studentName || !studentNickname}>录入学员</Button>
               </form>
             </CardContent>
-          </Card>
-        </div>
+            </Card>
+          ) : null}
+          </div>
+        ) : null}
 
-        {isAdmin ? (
+        {isAdmin && activeSection === 'system' ? (
           <Card>
             <CardHeader>
               <CardTitle>账号列表</CardTitle>
@@ -983,6 +1063,8 @@ function StaffWorkspace({
           </Card>
         ) : null}
 
+        {activeSection === 'schedule' ? (
+          <>
         <Card>
           <CardHeader>
             <CardTitle>设置辩题</CardTitle>
@@ -1190,7 +1272,53 @@ function StaffWorkspace({
             </CardContent>
           </Card>
         </div>
+          </>
+        ) : null}
 
+        {activeSection === 'position-progress' ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>辩位录入进度</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3">
+                {operations?.matchReviews.length ? (
+                  operations.matchReviews.map((review) => {
+                    const complete =
+                      review.affirmative_position_count === 4 && review.negative_position_count === 4
+                    return (
+                      <div key={review.match} className="rounded-md border border-slate-200 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">
+                              积分赛 {review.round_number} · {review.venue_name} · 第 {review.sequence} 场
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {review.affirmative_team_name} vs {review.negative_team_name}
+                            </p>
+                          </div>
+                          <span
+                            className={
+                              complete
+                                ? 'rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700'
+                                : 'rounded-md bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700'
+                            }
+                          >
+                            正 {review.affirmative_position_count}/4 · 反 {review.negative_position_count}/4
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="text-sm text-slate-500">暂无比赛可检查。</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {activeSection === 'review' ? (
         <Card>
           <CardHeader>
             <CardTitle>积分核对与赛事记录完成情况</CardTitle>
@@ -1303,7 +1431,9 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        ) : null}
 
+        {activeSection === 'rankings' ? (
         <Card>
           <CardHeader>
             <CardTitle>队伍积分榜</CardTitle>
@@ -1337,7 +1467,9 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        ) : null}
 
+        {activeSection === 'teams-coaches' ? (
         <Card>
           <CardHeader>
             <CardTitle>队伍列表</CardTitle>
@@ -1369,7 +1501,9 @@ function StaffWorkspace({
             <p className="mt-5 text-xs text-slate-400">Token 已建立：{token?.slice(0, 8)}...</p>
           </CardContent>
         </Card>
+        ) : null}
 
+        {activeSection === 'camp-students' ? (
         <Card>
           <CardHeader>
             <CardTitle>学员归队表</CardTitle>
@@ -1400,6 +1534,7 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        ) : null}
       </section>
     </section>
   )
