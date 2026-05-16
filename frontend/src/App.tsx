@@ -671,6 +671,21 @@ function StaffWorkspace({
     }
   }
 
+  function isMatchDraftDirty(venueId: number, sequence: number, match?: OperationsDashboard['matches'][number]) {
+    const draft = getMatchDraft(venueId, sequence, match)
+    return (
+      draft.affirmativeTeamId !== String(match?.affirmative_team ?? '') ||
+      draft.negativeTeamId !== String(match?.negative_team ?? '')
+    )
+  }
+
+  function isVenueScheduleDirty(venueId: number) {
+    return [1, 2, 3, 4, 5].some((sequence) => {
+      const match = selectedRoundMatches.find((item) => item.venue === venueId && item.sequence === sequence)
+      return isMatchDraftDirty(venueId, sequence, match)
+    })
+  }
+
   function updateMatchDraft(
     venueId: number,
     sequence: number,
@@ -696,6 +711,9 @@ function StaffWorkspace({
         const draft = getMatchDraft(venueId, sequence, match)
         const hasAffirmative = Boolean(draft.affirmativeTeamId)
         const hasNegative = Boolean(draft.negativeTeamId)
+        if (match && !hasAffirmative && !hasNegative) {
+          throw new Error(`第 ${sequence} 场已有对阵，不能直接清空。`)
+        }
         if (!hasAffirmative && !hasNegative) continue
         if (hasAffirmative !== hasNegative) {
           throw new Error(`第 ${sequence} 场需要同时选择正方和反方。`)
@@ -720,6 +738,13 @@ function StaffWorkspace({
         }
         savedCount += 1
       }
+      setMatchDrafts((current) => {
+        const next = { ...current }
+        for (const sequence of [1, 2, 3, 4, 5]) {
+          delete next[`${venueId}-${sequence}`]
+        }
+        return next
+      })
       return savedCount ? `已保存本会场 ${savedCount} 场对阵。` : '本会场暂无可保存的对阵。'
     })
   }
@@ -1284,13 +1309,32 @@ function StaffWorkspace({
                           .filter((match) => match.venue === venue.id)
                           .sort((a, b) => a.sequence - b.sequence)
                       : []
+                    const venueIsDirty = venue ? isVenueScheduleDirty(venue.id) : false
                     return (
-                      <div key={slot.index} className="rounded-md border border-slate-200 px-4 py-3">
+                      <div
+                        key={slot.index}
+                        className={
+                          venueIsDirty
+                            ? 'rounded-md border border-amber-200 bg-amber-50/50 px-4 py-3'
+                            : 'rounded-md border border-slate-200 px-4 py-3'
+                        }
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
                             {venue ? (
                               <>
-                                <p className="font-semibold">{venue.name}</p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-semibold">{venue.name}</p>
+                                  <span
+                                    className={
+                                      venueIsDirty
+                                        ? 'rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700'
+                                        : 'rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700'
+                                    }
+                                  >
+                                    {venueIsDirty ? '有未保存修改' : '编排已保存'}
+                                  </span>
+                                </div>
                                 <p className="mt-1 text-xs text-slate-500">
                                   评委：{venue.judge_names.join('、') || '未分配'}
                                 </p>
@@ -1330,8 +1374,13 @@ function StaffWorkspace({
                               >
                                 编辑评委
                               </Button>
-                              <Button type="button" disabled={isSaving} onClick={() => saveVenueSchedule(venue.id)}>
-                                保存本会场编排
+                              <Button
+                                className={venueIsDirty ? 'border-amber-200 bg-amber-600 text-white hover:bg-amber-700' : ''}
+                                type="button"
+                                disabled={isSaving}
+                                onClick={() => saveVenueSchedule(venue.id)}
+                              >
+                                {venueIsDirty ? '保存修改' : '保存本会场编排'}
                               </Button>
                             </div>
                           ) : null}
@@ -1341,10 +1390,16 @@ function StaffWorkspace({
                             const match = venueMatches.find((item) => item.sequence === sequence)
                             const startsAt = match?.starts_at.slice(0, 5) ?? `${String(7 + sequence).padStart(2, '0')}:00`
                             const draft = venue ? getMatchDraft(venue.id, sequence, match) : null
+                            const rowIsDirty = venue ? isMatchDraftDirty(venue.id, sequence, match) : false
+                            const rowIsSaved = Boolean(match) && !rowIsDirty
                             return (
                               <div
                                 key={sequence}
-                                className="grid gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr_1fr]"
+                                className={
+                                  rowIsDirty
+                                    ? 'grid gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr_1fr_76px]'
+                                    : 'grid gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr_1fr_76px]'
+                                }
                               >
                                 <span className="font-medium text-slate-500">{startsAt}</span>
                                 {venue && draft ? (
@@ -1379,9 +1434,20 @@ function StaffWorkspace({
                                         ))}
                                       </select>
                                     </label>
+                                    <span
+                                      className={
+                                        rowIsDirty
+                                          ? 'self-end rounded-md bg-amber-100 px-2 py-2 text-center text-xs font-medium text-amber-700'
+                                          : rowIsSaved
+                                            ? 'self-end rounded-md bg-emerald-50 px-2 py-2 text-center text-xs font-medium text-emerald-700'
+                                            : 'self-end rounded-md bg-slate-100 px-2 py-2 text-center text-xs font-medium text-slate-500'
+                                      }
+                                    >
+                                      {rowIsDirty ? '待保存' : rowIsSaved ? '已保存' : '未安排'}
+                                    </span>
                                   </>
                                 ) : (
-                                  <span className="text-slate-400 md:col-span-2">请先创建会场</span>
+                                  <span className="text-slate-400 md:col-span-3">请先创建会场</span>
                                 )}
                               </div>
                             )
