@@ -35,6 +35,7 @@ import {
   apiUpdateRoundTopic,
   apiUpdateTeam,
   apiUpdateUserAccount,
+  apiVerifyMatch,
 } from './lib/api'
 import type { ApiUser, CoachDashboard, EnrollmentImportPreview, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
@@ -465,6 +466,13 @@ function StaffWorkspace({
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [activeSection, setActiveSection] = useState<StaffSectionKey>('overview')
+  const [studentSearch, setStudentSearch] = useState('')
+  const [teamSearch, setTeamSearch] = useState('')
+  const [scheduleRoundFilter, setScheduleRoundFilter] = useState('all')
+  const [reviewRoundFilter, setReviewRoundFilter] = useState('all')
+  const [selectedReviewId, setSelectedReviewId] = useState<number | null>(null)
+  const [verificationNote, setVerificationNote] = useState('')
+  const [bestSpeakerOverride, setBestSpeakerOverride] = useState('')
 
   const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
   const venuesForSelectedRound = operations?.venues.filter(
@@ -472,12 +480,43 @@ function StaffWorkspace({
   ) ?? []
   const visibleSections = staffSections.filter((section) => isAdmin || !section.adminOnly)
   const currentSection = visibleSections.find((section) => section.key === activeSection) ?? visibleSections[0]
-  const pendingReviewCount = operations?.matchReviews.filter((review) => !review.is_complete).length ?? 0
+  const pendingReviewCount = operations?.matchReviews.filter((review) => !review.is_verified).length ?? 0
   const pendingPositionCount =
     operations?.matchReviews.filter(
       (review) => review.affirmative_position_count < 4 || review.negative_position_count < 4,
     ).length ?? 0
   const unassignedEnrollmentCount = operations?.enrollments.filter((enrollment) => !enrollment.team).length ?? 0
+  const filteredEnrollments =
+    operations?.enrollments.filter((enrollment) => {
+      const keyword = studentSearch.trim().toLowerCase()
+      if (!keyword) return true
+      return [enrollment.nickname, enrollment.student_name, enrollment.team_name ?? '']
+        .some((value) => value.toLowerCase().includes(keyword))
+    }) ?? []
+  const filteredStudentHistories =
+    operations?.studentHistories.filter((student) => {
+      const keyword = studentSearch.trim().toLowerCase()
+      if (!keyword) return true
+      return [student.real_name, student.phone, ...student.participations.map((item) => item.nickname)]
+        .some((value) => value.toLowerCase().includes(keyword))
+    }) ?? []
+  const filteredTeams =
+    operations?.teams.filter((team) => {
+      const keyword = teamSearch.trim().toLowerCase()
+      if (!keyword) return true
+      return [team.name, team.coach_name].some((value) => value.toLowerCase().includes(keyword))
+    }) ?? []
+  const visibleMatches =
+    operations?.matches.filter((match) => scheduleRoundFilter === 'all' || String(match.round_number) === scheduleRoundFilter) ?? []
+  const visibleVenues =
+    operations?.venues.filter((venue) => {
+      if (scheduleRoundFilter === 'all') return true
+      const round = operations?.rounds.find((item) => item.id === venue.integral_round)
+      return String(round?.number) === scheduleRoundFilter
+    }) ?? []
+  const visibleReviews =
+    operations?.matchReviews.filter((review) => reviewRoundFilter === 'all' || String(review.round_number) === reviewRoundFilter) ?? []
+  const selectedReview = operations?.matchReviews.find((review) => review.match === selectedReviewId) ?? null
 
   useEffect(() => {
     if (!operations) return
@@ -504,6 +543,12 @@ function StaffWorkspace({
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
   }, [selectedTopicRound])
+
+  useEffect(() => {
+    if (!selectedReview) return
+    setVerificationNote(selectedReview.verification_note)
+    setBestSpeakerOverride(selectedReview.best_speaker_override ? String(selectedReview.best_speaker_override) : '')
+  }, [selectedReview])
 
   async function submitTopic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -543,6 +588,18 @@ function StaffWorkspace({
       })
       setMatchSequence(String((operations?.matches.length || 0) + 2))
       return '对阵已创建。'
+    })
+  }
+
+  async function submitMatchVerification(matchId: number, isVerified: boolean) {
+    if (!token) return
+    await save(async () => {
+      await apiVerifyMatch(token, matchId, {
+        is_verified: isVerified,
+        verification_note: verificationNote,
+        best_speaker_override: bestSpeakerOverride ? Number(bestSpeakerOverride) : null,
+      })
+      return isVerified ? '比赛已标记为核验完成。' : '比赛已取消核验。'
     })
   }
 
@@ -1065,6 +1122,24 @@ function StaffWorkspace({
 
         {activeSection === 'schedule' ? (
           <>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm font-medium text-slate-700">查看轮次</span>
+          {['all', '1', '2', '3'].map((round) => (
+            <button
+              key={round}
+              className={
+                scheduleRoundFilter === round
+                  ? 'rounded-md bg-slate-950 px-3 py-1.5 text-sm font-medium text-white'
+                  : 'rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'
+              }
+              type="button"
+              onClick={() => setScheduleRoundFilter(round)}
+            >
+              {round === 'all' ? '全部' : `积分赛 ${round}`}
+            </button>
+          ))}
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>设置辩题</CardTitle>
@@ -1156,8 +1231,8 @@ function StaffWorkspace({
                 <Button type="submit" disabled={isSaving || !venueName || !venueRoundId}>创建会场</Button>
               </form>
               <div className="grid gap-3">
-                {operations?.venues.length ? (
-                  operations.venues.map((venue) => (
+                {visibleVenues.length ? (
+                  visibleVenues.map((venue) => (
                     <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
                       <p className="font-semibold">{venue.name}</p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -1246,8 +1321,8 @@ function StaffWorkspace({
                 <Button type="submit" disabled={isSaving || !matchVenueId || !matchSequence}>创建对阵</Button>
               </form>
               <div className="grid gap-3">
-                {operations?.matches.length ? (
-                  operations.matches.map((match) => (
+                {visibleMatches.length ? (
+                  visibleMatches.map((match) => (
                     <div key={match.id} className="rounded-md border border-slate-200 px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                         <span>积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场</span>
@@ -1272,6 +1347,55 @@ function StaffWorkspace({
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>会场时间轴</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {visibleVenues.length ? (
+                visibleVenues.map((venue) => {
+                  const venueMatches = visibleMatches
+                    .filter((match) => match.venue === venue.id)
+                    .sort((a, b) => a.sequence - b.sequence)
+                  return (
+                    <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="font-semibold">{venue.name}</p>
+                        <p className="text-xs text-slate-500">评委：{venue.judge_names.join('、') || '未分配'}</p>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {[1, 2, 3, 4, 5].map((sequence) => {
+                          const match = venueMatches.find((item) => item.sequence === sequence)
+                          const defaultHour = 8 + sequence - 1
+                          return (
+                            <div key={sequence} className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[70px_1fr]">
+                              <span className="font-medium text-slate-500">
+                                {match?.starts_at.slice(0, 5) ?? `${String(defaultHour).padStart(2, '0')}:00`}
+                              </span>
+                              {match ? (
+                                <span>
+                                  <span className="font-medium text-red-700">{match.affirmative_team_name}</span>
+                                  <span className="px-2 text-slate-400">vs</span>
+                                  <span className="font-medium text-blue-700">{match.negative_team_name}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">未安排</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <p className="text-sm text-slate-500">暂无会场。</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
           </>
         ) : null}
 
@@ -1319,14 +1443,33 @@ function StaffWorkspace({
         ) : null}
 
         {activeSection === 'review' ? (
+        <>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm font-medium text-slate-700">核对轮次</span>
+          {['all', '1', '2', '3'].map((round) => (
+            <button
+              key={round}
+              className={
+                reviewRoundFilter === round
+                  ? 'rounded-md bg-slate-950 px-3 py-1.5 text-sm font-medium text-white'
+                  : 'rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'
+              }
+              type="button"
+              onClick={() => setReviewRoundFilter(round)}
+            >
+              {round === 'all' ? '全部' : `积分赛 ${round}`}
+            </button>
+          ))}
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>积分核对与赛事记录完成情况</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4">
-              {operations?.matchReviews.length ? (
-                operations.matchReviews.map((review) => (
+              {visibleReviews.length ? (
+                visibleReviews.map((review) => (
                   <div key={review.match} className="rounded-lg border border-slate-200 px-4 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -1337,12 +1480,14 @@ function StaffWorkspace({
                       </div>
                       <span
                         className={
-                          review.is_complete
+                          review.is_verified
+                            ? 'rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700'
+                            : review.is_complete
                             ? 'rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700'
                             : 'rounded-md bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700'
                         }
                       >
-                        {review.is_complete ? '已完成' : '待核对'}
+                        {review.is_verified ? '已核验' : review.is_complete ? '待确认' : '待补齐'}
                       </span>
                     </div>
 
@@ -1423,6 +1568,11 @@ function StaffWorkspace({
                         )}
                       </div>
                     </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button type="button" variant="outline" onClick={() => setSelectedReviewId(review.match)}>
+                        查看详情与核验
+                      </Button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -1431,9 +1581,104 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        {selectedReview ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                比赛详情核对 · 积分赛 {selectedReview.round_number} · {selectedReview.venue_name} · 第 {selectedReview.sequence} 场
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-md border border-red-100 bg-red-50 px-4 py-3">
+                    <p className="text-xs font-medium text-red-500">正方</p>
+                    <p className="mt-1 font-semibold text-red-900">{selectedReview.affirmative_team_name}</p>
+                  </div>
+                  <div className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3">
+                    <p className="text-xs font-medium text-blue-500">反方</p>
+                    <p className="mt-1 font-semibold text-blue-900">{selectedReview.negative_team_name}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {selectedReview.ballots.map((ballot) => (
+                    <div key={ballot.id} className="rounded-md border border-slate-200 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="font-semibold">{ballot.judge_name}</p>
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                          正 {ballot.affirmative_votes} · 反 {ballot.negative_votes}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3">
+                        {ballot.position_scores.map((score) => (
+                          <div
+                            key={`${ballot.id}-${score.position}`}
+                            className={score.side === 'affirmative' ? 'rounded-md bg-red-50 px-3 py-2' : 'rounded-md bg-blue-50 px-3 py-2'}
+                          >
+                            <div className="flex flex-wrap justify-between gap-2 text-sm">
+                              <span className="font-medium">{score.label} · {score.speaker}</span>
+                              <span>{score.score.toFixed(1)} 分</span>
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-slate-600">发言记录：{score.speech_record || '未填写'}</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-600">评委反馈：{score.judge_feedback || '未填写'}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {ballot.best_speaker_votes.map((vote) => (
+                          <span key={`${ballot.id}-${vote.weight}`} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                            {vote.weight} 票 · {vote.label} · {vote.speaker}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-md border border-slate-200 px-4 py-3">
+                  <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto_auto]">
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      最佳辩手最终认定
+                      <select
+                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                        value={bestSpeakerOverride}
+                        onChange={(event) => setBestSpeakerOverride(event.target.value)}
+                      >
+                        <option value="">按票数自动</option>
+                        {selectedReview.positions.map((position) => (
+                          <option key={position.id} value={position.id}>
+                            {position.label} · {position.speaker}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      核验备注
+                      <input
+                        className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                        placeholder="例如：最佳辩手平票，由工作人员确认"
+                        value={verificationNote}
+                        onChange={(event) => setVerificationNote(event.target.value)}
+                      />
+                    </label>
+                    <Button type="button" disabled={isSaving} onClick={() => submitMatchVerification(selectedReview.match, true)}>
+                      标记已核验
+                    </Button>
+                    <Button type="button" variant="outline" disabled={isSaving} onClick={() => submitMatchVerification(selectedReview.match, false)}>
+                      取消核验
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+        </>
         ) : null}
 
         {activeSection === 'rankings' ? (
+        <>
         <Card>
           <CardHeader>
             <CardTitle>队伍积分榜</CardTitle>
@@ -1467,19 +1712,76 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>学员个人赛事数据</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2 pr-4 font-medium">学员</th>
+                    <th className="py-2 pr-4 font-medium">真实姓名</th>
+                    <th className="py-2 pr-4 font-medium">轮次</th>
+                    <th className="py-2 pr-4 font-medium">辩位</th>
+                    <th className="py-2 pr-4 font-medium">平均分</th>
+                    <th className="py-2 pr-4 font-medium">最佳辩手票</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operations?.studentMatchStats.map((stat) => (
+                    <tr key={stat.position} className="border-b border-slate-100">
+                      <td className="py-3 pr-4 font-semibold">{stat.speaker}</td>
+                      <td className="py-3 pr-4">{stat.student_name}</td>
+                      <td className="py-3 pr-4">积分赛 {stat.round_number}</td>
+                      <td className={stat.side === 'affirmative' ? 'py-3 pr-4 font-medium text-red-700' : 'py-3 pr-4 font-medium text-blue-700'}>
+                        {stat.label}
+                      </td>
+                      <td className="py-3 pr-4">{stat.average_score ? stat.average_score.toFixed(1) : '-'}</td>
+                      <td className="py-3 pr-4">{stat.best_speaker_votes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+        </>
         ) : null}
 
         {activeSection === 'teams-coaches' ? (
+        <>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <input
+            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+            placeholder="搜索队伍或教练"
+            value={teamSearch}
+            onChange={(event) => setTeamSearch(event.target.value)}
+          />
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>队伍列表</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2">
-              {operations?.teams.map((team) => (
+              {filteredTeams.map((team) => {
+                const members = operations?.enrollments.filter((enrollment) => enrollment.team === team.id) ?? []
+                const teamMatches = operations?.matches.filter(
+                  (match) => match.affirmative_team === team.id || match.negative_team === team.id,
+                ) ?? []
+                return (
                 <div key={team.id} className="rounded-md border border-slate-200 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="font-semibold">{team.name}</p>
+                    <div>
+                      <p className="font-semibold">{team.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        教练：{team.coach_name} · 队员：{team.member_count} 人
+                        {team.member_count < 7 || team.member_count > 8 ? ' · 人数需调整' : ''}
+                      </p>
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
@@ -1492,25 +1794,51 @@ function StaffWorkspace({
                       编辑
                     </Button>
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    教练：{team.coach_name} · 队员：{team.member_count} 人
-                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {members.length ? members.map((member) => (
+                      <span key={member.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                        {member.nickname}
+                      </span>
+                    )) : <span className="text-xs text-slate-400">暂无队员</span>}
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {teamMatches.length ? teamMatches.map((match) => (
+                      <div key={match.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        积分赛 {match.round_number} · {match.venue_name} · 第 {match.sequence} 场 ·
+                        <span className={match.affirmative_team === team.id ? 'ml-1 font-medium text-red-700' : 'ml-1 font-medium text-blue-700'}>
+                          {match.affirmative_team === team.id ? '正方' : '反方'}
+                        </span>
+                      </div>
+                    )) : <p className="text-xs text-slate-400">暂无比赛安排</p>}
+                  </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
             <p className="mt-5 text-xs text-slate-400">Token 已建立：{token?.slice(0, 8)}...</p>
           </CardContent>
         </Card>
+        </>
         ) : null}
 
         {activeSection === 'camp-students' ? (
+        <>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <input
+            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+            placeholder="搜索本期昵称、真实姓名、电话或队伍"
+            value={studentSearch}
+            onChange={(event) => setStudentSearch(event.target.value)}
+          />
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle>学员归队表</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2">
-              {operations?.enrollments.map((enrollment) => (
+              {filteredEnrollments.map((enrollment) => (
                 <div key={enrollment.id} className="rounded-md border border-slate-200 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1534,6 +1862,40 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>总学员库</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {filteredStudentHistories.length ? (
+                filteredStudentHistories.map((student) => (
+                  <div key={student.student} className="rounded-md border border-slate-200 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{student.real_name}</p>
+                        <p className="mt-1 text-xs text-slate-500">{student.phone || '未填写电话'}</p>
+                      </div>
+                      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                        {student.participations.length} 期
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {student.participations.map((item) => (
+                        <span key={`${item.camp}-${item.nickname}`} className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                          {item.camp_name} · {item.nickname} · {item.team_name || '未分队'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">暂无匹配学员。</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        </>
         ) : null}
       </section>
     </section>

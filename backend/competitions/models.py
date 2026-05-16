@@ -54,6 +54,9 @@ class Match(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name="best_speaker_override_matches",
     )
+    is_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_note = models.TextField(blank=True)
 
     class Meta:
         ordering = ["integral_round", "venue__name", "sequence"]

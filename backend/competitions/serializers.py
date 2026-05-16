@@ -50,7 +50,11 @@ class MatchSerializer(serializers.ModelSerializer):
             "negative_team",
             "negative_team_name",
             "best_speaker_override",
+            "is_verified",
+            "verified_at",
+            "verification_note",
         ]
+        read_only_fields = ["verified_at"]
 
 
 class DebatePositionSerializer(serializers.ModelSerializer):

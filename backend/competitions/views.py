@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -39,6 +40,21 @@ class CompetitionVenueViewSet(StaffCompetitionViewSet):
 class MatchViewSet(StaffCompetitionViewSet):
     queryset = Match.objects.select_related("integral_round", "venue", "affirmative_team", "negative_team")
     serializer_class = MatchSerializer
+
+    @action(detail=True, methods=["post"])
+    def verify(self, request, pk=None):
+        match = self.get_object()
+        is_verified = bool(request.data.get("is_verified", True))
+        match.is_verified = is_verified
+        match.verified_at = timezone.now() if is_verified else None
+        match.verification_note = request.data.get("verification_note", "")
+        best_speaker_override = request.data.get("best_speaker_override", None)
+        if best_speaker_override in ("", None):
+            match.best_speaker_override = None
+        else:
+            match.best_speaker_override_id = best_speaker_override
+        match.save(update_fields=["is_verified", "verified_at", "verification_note", "best_speaker_override"])
+        return Response(self.get_serializer(match).data, status=status.HTTP_200_OK)
 
 
 class DebatePositionViewSet(StaffCompetitionViewSet):

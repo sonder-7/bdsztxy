@@ -52,6 +52,9 @@ export type OperationsDashboard = {
     negative_team: number
     negative_team_name: string
     best_speaker_override: number | null
+    is_verified: boolean
+    verified_at: string | null
+    verification_note: string
   }>
   teams: Array<{
     id: number
@@ -114,6 +117,10 @@ export type OperationsDashboard = {
     affirmative_team_name: string
     negative_team: number
     negative_team_name: string
+    is_verified: boolean
+    verified_at: string | null
+    verification_note: string
+    best_speaker_override: number | null
     assigned_judge_count: number
     assigned_judge_names: string[]
     affirmative_position_count: number
@@ -138,6 +145,42 @@ export type OperationsDashboard = {
       side: 'affirmative' | 'negative'
       votes: number
     }>
+    positions: Array<{
+      id: number
+      side: 'affirmative' | 'negative'
+      position_number: number
+      label: string
+      speaker: string
+      student_name: string
+      team: number | null
+      coach_note: string
+    }>
+    ballots: Array<{
+      id: number
+      judge: number
+      judge_name: string
+      submitted_at: string | null
+      affirmative_votes: number
+      negative_votes: number
+      corrected_by_staff: boolean
+      correction_note: string
+      position_scores: Array<{
+        position: number
+        label: string
+        speaker: string
+        side: 'affirmative' | 'negative'
+        score: number
+        speech_record: string
+        judge_feedback: string
+      }>
+      best_speaker_votes: Array<{
+        position: number
+        label: string
+        speaker: string
+        side: 'affirmative' | 'negative'
+        weight: number
+      }>
+    }>
   }>
   teamRankings: Array<{
     team: number
@@ -147,6 +190,29 @@ export type OperationsDashboard = {
       score: number
     }>
     total: number
+  }>
+  studentHistories: Array<{
+    student: number
+    real_name: string
+    phone: string
+    participations: Array<{
+      camp: number
+      camp_name: string
+      nickname: string
+      team_name: string | null
+    }>
+  }>
+  studentMatchStats: Array<{
+    position: number
+    speaker: string
+    student_name: string
+    team: number | null
+    round_number: number
+    match: number
+    side: 'affirmative' | 'negative'
+    label: string
+    average_score: number
+    best_speaker_votes: number
   }>
 }
 
@@ -477,6 +543,14 @@ export async function apiCreateMatch(
   },
 ) {
   return apiWrite('/api/competitions/matches/', token, 'POST', payload)
+}
+
+export async function apiVerifyMatch(
+  token: string,
+  matchId: number,
+  payload: { is_verified: boolean; verification_note: string; best_speaker_override: number | null },
+) {
+  return apiWrite(`/api/competitions/matches/${matchId}/verify/`, token, 'POST', payload)
 }
 
 export async function apiSubmitJudgeBallot(token: string, matchId: number, payload: JudgeBallotPayload) {
