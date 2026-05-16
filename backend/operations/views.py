@@ -1,6 +1,8 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.models import Role
+from accounts.serializers import UserAccountSerializer
 from camps.models import Camp, CampEnrollment, Coach, Judge, Student, Team
 from camps.permissions import IsAdminOrStaff
 from camps.serializers import CampEnrollmentSerializer, CampSerializer, CoachSerializer, JudgeSerializer, StudentSerializer, TeamSerializer
@@ -138,6 +140,10 @@ class OperationsDashboardView(APIView):
             ]
             total["total"] = round(sum(item["score"] for item in total["round_scores"]), 2)
 
+        users = request.user.__class__.objects.none()
+        if getattr(request.user.profile, "role", None) == Role.ADMIN:
+            users = request.user.__class__.objects.select_related("profile", "profile__coach", "profile__judge").order_by("username")
+
         return Response(
             {
                 "activeCamp": CampSerializer(camp).data if camp else None,
@@ -150,6 +156,7 @@ class OperationsDashboardView(APIView):
                 "judges": JudgeSerializer(Judge.objects.filter(is_active=True), many=True).data,
                 "students": StudentSerializer(Student.objects.all(), many=True).data,
                 "enrollments": CampEnrollmentSerializer(enrollments, many=True).data,
+                "users": UserAccountSerializer(users, many=True).data,
                 "matchReviews": match_reviews,
                 "teamRankings": sorted(team_totals.values(), key=lambda item: item["total"], reverse=True),
             }

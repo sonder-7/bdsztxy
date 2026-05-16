@@ -50,6 +50,10 @@ class Command(BaseCommand):
             for name in judge_names
         ]
 
+        UserProfile.objects.filter(user__username="coach").update(coach=coaches[0], judge=None)
+        UserProfile.objects.filter(user__username="judge").update(judge=judges[0], coach=None)
+        UserProfile.objects.filter(user__username__in=["admin", "staff"]).update(coach=None, judge=None)
+
         team_specs = [
             ("赤焰队", coaches[0], ["小鹿", "阿澈", "星河", "南乔", "清欢", "砚舟", "知夏", "予安"]),
             ("蓝锋队", coaches[1], ["青柠", "林深", "北辰", "云起", "明烛", "司南", "一川", "清越"]),

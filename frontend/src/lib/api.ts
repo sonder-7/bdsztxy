@@ -4,6 +4,8 @@ export type ApiUser = {
   displayName: string
   role: 'admin' | 'staff' | 'coach' | 'judge'
   roleLabel: string
+  coach: number | null
+  judge: number | null
 }
 
 export type OperationsDashboard = {
@@ -87,6 +89,19 @@ export type OperationsDashboard = {
     nickname: string
     team: number | null
     team_name: string | null
+  }>
+  users: Array<{
+    id: number
+    username: string
+    is_active: boolean
+    role: 'admin' | 'staff' | 'coach' | 'judge'
+    display_name: string
+    phone: string
+    profile_is_active: boolean
+    coach: number | null
+    coach_name: string | null
+    judge: number | null
+    judge_name: string | null
   }>
   matchReviews: Array<{
     match: number
@@ -348,6 +363,52 @@ export async function apiCreateEnrollment(
   payload: { camp: number; student: number; nickname: string; team: number | null },
 ) {
   return apiWrite('/api/camps/enrollments/', token, 'POST', payload)
+}
+
+export async function apiCreateUserAccount(
+  token: string,
+  payload: {
+    username: string
+    password: string
+    role: 'admin' | 'staff' | 'coach' | 'judge'
+    display_name: string
+    phone: string
+    coach: number | null
+    judge: number | null
+    is_active: boolean
+    profile_is_active: boolean
+  },
+) {
+  return apiWrite('/api/auth/users/', token, 'POST', payload)
+}
+
+export async function apiUpdateUserAccount(
+  token: string,
+  userId: number,
+  payload: Partial<{
+    password: string
+    role: 'admin' | 'staff' | 'coach' | 'judge'
+    display_name: string
+    phone: string
+    coach: number | null
+    judge: number | null
+    is_active: boolean
+    profile_is_active: boolean
+  }>,
+) {
+  return apiWrite(`/api/auth/users/${userId}/`, token, 'PATCH', payload)
+}
+
+export async function apiUpdateTeam(token: string, teamId: number, payload: Partial<{ name: string; coach: number }>) {
+  return apiWrite(`/api/camps/teams/${teamId}/`, token, 'PATCH', payload)
+}
+
+export async function apiUpdateEnrollment(
+  token: string,
+  enrollmentId: number,
+  payload: Partial<{ nickname: string; team: number | null }>,
+) {
+  return apiWrite(`/api/camps/enrollments/${enrollmentId}/`, token, 'PATCH', payload)
 }
 
 export async function apiCreateVenue(token: string, integralRound: number, name: string, judges: number[]) {

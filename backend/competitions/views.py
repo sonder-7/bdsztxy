@@ -1,12 +1,11 @@
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
-from django.db.models import Q
 
 from accounts.models import Role
-from camps.models import Coach, Judge
 from camps.permissions import IsAdminOrStaff
 
 from .models import CompetitionVenue, DebatePosition, DebateSide, IntegralRound, JudgeBallot, Match
@@ -54,10 +53,9 @@ class JudgeMatchViewSet(ReadOnlyModelViewSet):
         profile = getattr(self.request.user, "profile", None)
         if not profile or profile.role != Role.JUDGE:
             raise PermissionDenied("仅评委可以访问评审任务。")
-        try:
-            return Judge.objects.get(name=profile.display_name, is_active=True)
-        except Judge.DoesNotExist as exc:
-            raise NotFound("当前账号没有匹配的评委档案。") from exc
+        if not profile.judge_id or not profile.judge.is_active:
+            raise NotFound("当前账号没有绑定可用的评委档案。")
+        return profile.judge
 
     def get_queryset(self):
         judge = self._get_current_judge()
@@ -97,10 +95,9 @@ class CoachMatchViewSet(ReadOnlyModelViewSet):
         profile = getattr(self.request.user, "profile", None)
         if not profile or profile.role != Role.COACH:
             raise PermissionDenied("仅教练可以访问教练工作台。")
-        try:
-            return Coach.objects.get(name=profile.display_name, is_active=True)
-        except Coach.DoesNotExist as exc:
-            raise NotFound("当前账号没有匹配的教练档案。") from exc
+        if not profile.coach_id or not profile.coach.is_active:
+            raise NotFound("当前账号没有绑定可用的教练档案。")
+        return profile.coach
 
     def _get_current_team(self):
         coach = self._get_current_coach()

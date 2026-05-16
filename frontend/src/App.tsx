@@ -21,6 +21,7 @@ import {
   apiCreateMatch,
   apiCreateStudent,
   apiCreateTeam,
+  apiCreateUserAccount,
   apiCreateVenue,
   apiGetCoachDashboard,
   apiGetJudgeMatches,
@@ -28,7 +29,10 @@ import {
   apiLogin,
   apiSubmitCoachPositions,
   apiSubmitJudgeBallot,
+  apiUpdateEnrollment,
   apiUpdateRoundTopic,
+  apiUpdateTeam,
+  apiUpdateUserAccount,
 } from './lib/api'
 import type { ApiUser, CoachDashboard, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
@@ -230,6 +234,7 @@ function App() {
               operations={operations}
               error={operationsError}
               token={token}
+              isAdmin={user.role === 'admin'}
               onRefresh={() => setOperationsReloadKey((value) => value + 1)}
             />
           ) : user.role === 'coach' ? (
@@ -390,12 +395,14 @@ function StaffWorkspace({
   operations,
   error,
   token,
+  isAdmin,
   onRefresh,
 }: {
   modules: Array<{ title: string; description: string; icon: typeof ShieldCheck }>
   operations: OperationsDashboard | null
   error: string
   token: string | null
+  isAdmin: boolean
   onRefresh: () => void
 }) {
   const [topicRoundId, setTopicRoundId] = useState('')
@@ -425,6 +432,13 @@ function StaffWorkspace({
   const [studentPhone, setStudentPhone] = useState('')
   const [studentNickname, setStudentNickname] = useState('')
   const [studentTeamId, setStudentTeamId] = useState('')
+  const [accountUsername, setAccountUsername] = useState('')
+  const [accountPassword, setAccountPassword] = useState('')
+  const [accountRole, setAccountRole] = useState<'admin' | 'staff' | 'coach' | 'judge'>('staff')
+  const [accountDisplayName, setAccountDisplayName] = useState('')
+  const [accountPhone, setAccountPhone] = useState('')
+  const [accountCoachId, setAccountCoachId] = useState('')
+  const [accountJudgeId, setAccountJudgeId] = useState('')
   const [formMessage, setFormMessage] = useState('')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -574,6 +588,63 @@ function StaffWorkspace({
       setStudentPhone('')
       setStudentNickname('')
       return '学员已录入并加入当前营期。'
+    })
+  }
+
+  async function submitAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !accountUsername || !accountPassword || !accountDisplayName) return
+    if (accountRole === 'coach' && !accountCoachId) {
+      setFormError('教练账号必须绑定教练档案。')
+      return
+    }
+    if (accountRole === 'judge' && !accountJudgeId) {
+      setFormError('评委账号必须绑定评委档案。')
+      return
+    }
+    await save(async () => {
+      await apiCreateUserAccount(token, {
+        username: accountUsername,
+        password: accountPassword,
+        role: accountRole,
+        display_name: accountDisplayName,
+        phone: accountPhone,
+        coach: accountRole === 'coach' ? Number(accountCoachId) : null,
+        judge: accountRole === 'judge' ? Number(accountJudgeId) : null,
+        is_active: true,
+        profile_is_active: true,
+      })
+      setAccountUsername('')
+      setAccountPassword('')
+      setAccountDisplayName('')
+      setAccountPhone('')
+      setAccountCoachId('')
+      setAccountJudgeId('')
+      return '账号已创建并绑定。'
+    })
+  }
+
+  async function toggleAccount(userId: number, currentActive: boolean) {
+    if (!token) return
+    await save(async () => {
+      await apiUpdateUserAccount(token, userId, { is_active: !currentActive, profile_is_active: !currentActive })
+      return currentActive ? '账号已停用。' : '账号已启用。'
+    })
+  }
+
+  async function quickUpdateTeam(teamId: number, name: string, coach: number) {
+    if (!token) return
+    await save(async () => {
+      await apiUpdateTeam(token, teamId, { name, coach })
+      return '队伍信息已更新。'
+    })
+  }
+
+  async function quickUpdateEnrollment(enrollmentId: number, nickname: string, team: number | null) {
+    if (!token) return
+    await save(async () => {
+      await apiUpdateEnrollment(token, enrollmentId, { nickname, team })
+      return '学员归队信息已更新。'
     })
   }
 
@@ -755,6 +826,78 @@ function StaffWorkspace({
             </CardContent>
           </Card>
         </div>
+
+        {isAdmin ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>账号管理与绑定</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="mb-5 grid gap-3" onSubmit={submitAccount}>
+              <div className="grid gap-3 md:grid-cols-4">
+                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="账号" value={accountUsername} onChange={(event) => setAccountUsername(event.target.value)} />
+                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="初始密码" type="password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
+                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="显示名" value={accountDisplayName} onChange={(event) => setAccountDisplayName(event.target.value)} />
+                <input className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" placeholder="联系方式" value={accountPhone} onChange={(event) => setAccountPhone(event.target.value)} />
+              </div>
+              <div className="grid gap-3 md:grid-cols-[160px_1fr_1fr_auto]">
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  value={accountRole}
+                  onChange={(event) => setAccountRole(event.target.value as 'admin' | 'staff' | 'coach' | 'judge')}
+                >
+                  <option value="staff">工作人员</option>
+                  <option value="coach">教练</option>
+                  <option value="judge">评委</option>
+                  <option value="admin">管理员</option>
+                </select>
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  disabled={accountRole !== 'coach'}
+                  value={accountCoachId}
+                  onChange={(event) => setAccountCoachId(event.target.value)}
+                >
+                  <option value="">绑定教练档案</option>
+                  {operations?.coaches.map((coach) => (
+                    <option key={coach.id} value={coach.id}>{coach.name}</option>
+                  ))}
+                </select>
+                <select
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                  disabled={accountRole !== 'judge'}
+                  value={accountJudgeId}
+                  onChange={(event) => setAccountJudgeId(event.target.value)}
+                >
+                  <option value="">绑定评委档案</option>
+                  {operations?.judges.map((judge) => (
+                    <option key={judge.id} value={judge.id}>{judge.name}</option>
+                  ))}
+                </select>
+                <Button type="submit" disabled={isSaving || !accountUsername || !accountPassword || !accountDisplayName}>创建账号</Button>
+              </div>
+              </form>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {operations?.users.map((account) => (
+                  <div key={account.id} className="rounded-md border border-slate-200 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{account.display_name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{account.username} · {account.role}</p>
+                    </div>
+                    <Button type="button" variant="outline" onClick={() => toggleAccount(account.id, account.is_active)}>
+                      {account.is_active ? '停用' : '启用'}
+                    </Button>
+                  </div>
+                  <p className="mt-3 text-sm text-slate-600">
+                    绑定：{account.coach_name || account.judge_name || '无需绑定'}
+                  </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -1119,7 +1262,20 @@ function StaffWorkspace({
             <div className="grid gap-3 md:grid-cols-2">
               {operations?.teams.map((team) => (
                 <div key={team.id} className="rounded-md border border-slate-200 px-4 py-3">
-                  <p className="font-semibold">{team.name}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-semibold">{team.name}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const name = window.prompt('队伍名称', team.name)
+                        if (!name) return
+                        quickUpdateTeam(team.id, name, team.coach)
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
                   <p className="mt-2 text-sm text-slate-600">
                     教练：{team.coach_name} · 队员：{team.member_count} 人
                   </p>
@@ -1127,6 +1283,37 @@ function StaffWorkspace({
               ))}
             </div>
             <p className="mt-5 text-xs text-slate-400">Token 已建立：{token?.slice(0, 8)}...</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>学员归队表</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2">
+              {operations?.enrollments.map((enrollment) => (
+                <div key={enrollment.id} className="rounded-md border border-slate-200 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{enrollment.nickname}</p>
+                      <p className="mt-1 text-xs text-slate-500">{enrollment.student_name} · {enrollment.team_name || '暂未分队'}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const nickname = window.prompt('本期昵称', enrollment.nickname)
+                        if (!nickname) return
+                        quickUpdateEnrollment(enrollment.id, nickname, enrollment.team)
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </section>

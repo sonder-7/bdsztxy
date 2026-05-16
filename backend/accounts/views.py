@@ -1,9 +1,19 @@
 from rest_framework.authtoken.models import Token
+from rest_framework.permissions import BasePermission
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
+from django.contrib.auth import get_user_model
 
-from .serializers import LoginSerializer
+from .models import Role
+from .serializers import LoginSerializer, UserAccountSerializer
+
+
+class IsAdmin(BasePermission):
+    def has_permission(self, request, view):
+        profile = getattr(request.user, "profile", None)
+        return bool(profile and profile.role == Role.ADMIN)
 
 
 def user_payload(user):
@@ -14,6 +24,8 @@ def user_payload(user):
         "displayName": profile.display_name,
         "role": profile.role,
         "roleLabel": profile.get_role_display(),
+        "coach": profile.coach_id,
+        "judge": profile.judge_id,
     }
 
 
@@ -32,5 +44,11 @@ class LoginView(APIView):
 class MeView(APIView):
     def get(self, request):
         return Response({"user": user_payload(request.user)})
+
+
+class UserAccountViewSet(ModelViewSet):
+    permission_classes = [IsAdmin]
+    serializer_class = UserAccountSerializer
+    queryset = get_user_model().objects.select_related("profile", "profile__coach", "profile__judge").order_by("username")
 
 # Create your views here.
