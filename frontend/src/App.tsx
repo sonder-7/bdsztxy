@@ -609,6 +609,10 @@ function StaffWorkspace({
 
   async function saveVenueSlot(name: string) {
     if (!token || !selectedScheduleRound || !name.trim()) return
+    if (selectedRoundVenues.some((venue) => venue.name === name.trim())) {
+      setFormError('当前轮次已存在同名会场，请更换名称。')
+      return
+    }
     await save(async () => {
       await apiCreateVenue(token, selectedScheduleRound.id, name.trim(), [])
       return '会场名称已保存。'
@@ -619,14 +623,24 @@ function StaffWorkspace({
     if (!token || !operations) return
     await save(async () => {
       const names = overviewVenueSlots.map((slot) => slot.draftName.trim()).filter(Boolean)
+      if (new Set(names).size !== names.length) {
+        throw new Error('会场名称不能重复，请先调整名称。')
+      }
       for (const round of operations.rounds) {
-        const venues = operations.venues.filter((venue) => venue.integral_round === round.id)
+        const venues = operations.venues
+          .filter((venue) => venue.integral_round === round.id)
+          .map((venue) => ({ id: venue.id, name: venue.name }))
         for (const [index, name] of names.entries()) {
+          const sameNameVenue = venues.find((venue) => venue.name === name)
+          if (sameNameVenue) continue
+
           const existing = venues[index]
           if (existing) {
             await apiUpdateVenue(token, existing.id, { name })
+            existing.name = name
           } else {
             await apiCreateVenue(token, round.id, name, [])
+            venues.push({ id: -Date.now() - index, name })
           }
         }
       }
