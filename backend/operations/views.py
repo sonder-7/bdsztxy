@@ -1,8 +1,12 @@
+from django.http import HttpResponse
+from openpyxl import Workbook
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Role
 from accounts.serializers import UserAccountSerializer
+from assessments.models import AssessmentAssignment, AssessmentVenue
+from assessments.serializers import AssessmentAssignmentSerializer, AssessmentVenueSerializer
 from camps.models import Camp, CampEnrollment, Coach, Judge, Student, Team
 from camps.permissions import IsAdminOrStaff
 from camps.serializers import CampEnrollmentSerializer, CampSerializer, CoachSerializer, JudgeSerializer, StudentSerializer, TeamSerializer
@@ -184,6 +188,7 @@ def _student_match_stats(match_reviews):
                     "speaker": position["speaker"],
                     "student_name": position["student_name"],
                     "team": position["team"],
+                    "team_name": review["affirmative_team_name"] if position["side"] == DebateSide.AFFIRMATIVE else review["negative_team_name"],
                     "round_number": review["round_number"],
                     "match": review["match"],
                     "side": position["side"],
@@ -198,61 +203,105 @@ def _student_match_stats(match_reviews):
     return sorted(stats.values(), key=lambda item: (item["round_number"], item["speaker"]))
 
 
+def _active_camp():
+    camp = Camp.objects.filter(is_active=True).order_by("-starts_on", "-id").first()
+    if not camp:
+        camp = Camp.objects.order_by("-starts_on", "-id").first()
+    return camp
+
+
+def _camp_data(camp):
+    rounds = IntegralRound.objects.none()
+    venues = CompetitionVenue.objects.none()
+    matches = Match.objects.none()
+    teams = Team.objects.none()
+    enrollments = CampEnrollment.objects.none()
+
+    if camp:
+        rounds = IntegralRound.objects.filter(camp=camp).prefetch_related("matches")
+        venues = CompetitionVenue.objects.filter(integral_round__camp=camp).prefetch_related("judges")
+        matches = Match.objects.filter(integral_round__camp=camp).select_related(
+            "integral_round",
+            "venue",
+            "affirmative_team",
+            "negative_team",
+            "best_speaker_override",
+        ).prefetch_related(
+            "venue__judges",
+            "positions",
+            "positions__enrollment",
+            "positions__enrollment__student",
+            "ballots",
+            "ballots__judge",
+            "ballots__position_scores",
+            "ballots__best_speaker_votes",
+        )
+        teams = Team.objects.filter(camp=camp).select_related("coach").prefetch_related("members")
+        enrollments = CampEnrollment.objects.filter(camp=camp).select_related("student", "team")
+    return rounds, venues, matches, teams, enrollments
+
+
+def _team_rankings(teams, match_reviews):
+    team_totals = {}
+    for team in teams:
+        team_totals[team.id] = {
+            "team": team.id,
+            "team_name": team.name,
+            "round_scores": {
+                number: {"position_score": 0, "votes": 0, "score": 0}
+                for number in [1, 2, 3]
+            },
+            "total": 0,
+        }
+    for review in match_reviews:
+        if review["affirmative_team"] in team_totals:
+            score = team_totals[review["affirmative_team"]]["round_scores"][review["round_number"]]
+            score["position_score"] += review["affirmative_position_score"]
+            score["votes"] += review["affirmative_votes"]
+            score["score"] += review["affirmative_points"]
+        if review["negative_team"] in team_totals:
+            score = team_totals[review["negative_team"]]["round_scores"][review["round_number"]]
+            score["position_score"] += review["negative_position_score"]
+            score["votes"] += review["negative_votes"]
+            score["score"] += review["negative_points"]
+    for total in team_totals.values():
+        total["round_scores"] = [
+            {
+                "round_number": number,
+                "position_score": round(total["round_scores"][number]["position_score"], 1),
+                "votes": total["round_scores"][number]["votes"],
+                "score": round(total["round_scores"][number]["score"], 2),
+            }
+            for number in [1, 2, 3]
+        ]
+        total["total"] = round(sum(item["score"] for item in total["round_scores"]), 2)
+    return sorted(team_totals.values(), key=lambda item: item["total"], reverse=True)
+
+
+def _workbook_response(workbook, filename):
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    workbook.save(response)
+    return response
+
+
 class OperationsDashboardView(APIView):
     permission_classes = [IsAdminOrStaff]
 
     def get(self, request):
-        camp = Camp.objects.filter(is_active=True).order_by("-starts_on", "-id").first()
-        if not camp:
-            camp = Camp.objects.order_by("-starts_on", "-id").first()
-
-        rounds = IntegralRound.objects.none()
-        venues = CompetitionVenue.objects.none()
-        matches = Match.objects.none()
-        teams = Team.objects.none()
-        enrollments = CampEnrollment.objects.none()
-
+        camp = _active_camp()
+        rounds, venues, matches, teams, enrollments = _camp_data(camp)
+        assessment_venues = AssessmentVenue.objects.none()
+        assessment_assignments = AssessmentAssignment.objects.none()
         if camp:
-            rounds = IntegralRound.objects.filter(camp=camp).prefetch_related("matches")
-            venues = CompetitionVenue.objects.filter(integral_round__camp=camp).prefetch_related("judges")
-            matches = Match.objects.filter(integral_round__camp=camp).select_related(
-                "integral_round",
+            assessment_venues = AssessmentVenue.objects.filter(camp=camp).prefetch_related("coaches")
+            assessment_assignments = AssessmentAssignment.objects.filter(venue__camp=camp).select_related(
                 "venue",
-                "affirmative_team",
-                "negative_team",
-            ).prefetch_related(
-                "venue__judges",
-                "positions",
-                "positions__enrollment",
-                "positions__enrollment__student",
-                "ballots",
-                "ballots__judge",
-                "ballots__position_scores",
-                "ballots__best_speaker_votes",
+                "enrollment",
+                "enrollment__student",
             )
-            teams = Team.objects.filter(camp=camp).select_related("coach").prefetch_related("members")
-            enrollments = CampEnrollment.objects.filter(camp=camp).select_related("student", "team")
-
         match_reviews = [_match_review_summary(match) for match in matches]
-        team_totals = {}
-        for team in teams:
-            team_totals[team.id] = {
-                "team": team.id,
-                "team_name": team.name,
-                "round_scores": {1: 0, 2: 0, 3: 0},
-                "total": 0,
-            }
-        for review in match_reviews:
-            if review["affirmative_team"] in team_totals:
-                team_totals[review["affirmative_team"]]["round_scores"][review["round_number"]] += review["affirmative_points"]
-            if review["negative_team"] in team_totals:
-                team_totals[review["negative_team"]]["round_scores"][review["round_number"]] += review["negative_points"]
-        for total in team_totals.values():
-            total["round_scores"] = [
-                {"round_number": number, "score": round(total["round_scores"][number], 2)}
-                for number in [1, 2, 3]
-            ]
-            total["total"] = round(sum(item["score"] for item in total["round_scores"]), 2)
+        team_rankings = _team_rankings(teams, match_reviews)
 
         users = request.user.__class__.objects.none()
         if getattr(request.user.profile, "role", None) == Role.ADMIN:
@@ -272,8 +321,90 @@ class OperationsDashboardView(APIView):
                 "enrollments": CampEnrollmentSerializer(enrollments, many=True).data,
                 "users": UserAccountSerializer(users, many=True).data,
                 "matchReviews": match_reviews,
-                "teamRankings": sorted(team_totals.values(), key=lambda item: item["total"], reverse=True),
+                "teamRankings": team_rankings,
                 "studentHistories": _student_histories(),
                 "studentMatchStats": _student_match_stats(match_reviews),
+                "assessmentVenues": AssessmentVenueSerializer(assessment_venues, many=True).data,
+                "assessmentAssignments": AssessmentAssignmentSerializer(assessment_assignments, many=True).data,
             }
         )
+
+
+class TeamRankingExportView(APIView):
+    permission_classes = [IsAdminOrStaff]
+
+    def get(self, request):
+        camp = _active_camp()
+        _, _, matches, teams, _ = _camp_data(camp)
+        reviews = [_match_review_summary(match) for match in matches]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "队伍积分榜"
+        sheet.append(["排名", "队伍", "积分赛1辩位分", "积分赛1投票", "积分赛1总分", "积分赛2辩位分", "积分赛2投票", "积分赛2总分", "积分赛3辩位分", "积分赛3投票", "积分赛3总分", "总分"])
+        for index, team in enumerate(_team_rankings(teams, reviews), start=1):
+            row = [index, team["team_name"]]
+            for round_score in team["round_scores"]:
+                row.extend([round_score["position_score"], round_score["votes"], round_score["score"]])
+            row.append(team["total"])
+            sheet.append(row)
+        return _workbook_response(workbook, "team-rankings.xlsx")
+
+
+class StudentStatsExportView(APIView):
+    permission_classes = [IsAdminOrStaff]
+
+    def get(self, request):
+        camp = _active_camp()
+        _, _, matches, _, _ = _camp_data(camp)
+        reviews = [_match_review_summary(match) for match in matches]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "学员赛事数据"
+        sheet.append(["学员昵称", "真实姓名", "所在队伍", "轮次", "辩位", "个人平均分", "最佳辩手票"])
+        team_names = {position["id"]: "" for review in reviews for position in review["positions"]}
+        for review in reviews:
+            for position in review["positions"]:
+                team_names[position["id"]] = review["affirmative_team_name"] if position["side"] == DebateSide.AFFIRMATIVE else review["negative_team_name"]
+        for item in _student_match_stats(reviews):
+            sheet.append([
+                item["speaker"],
+                item["student_name"],
+                team_names.get(item["position"], ""),
+                f"积分赛{item['round_number']}",
+                item["label"],
+                item["average_score"],
+                item["best_speaker_votes"],
+            ])
+        return _workbook_response(workbook, "student-match-stats.xlsx")
+
+
+class JudgeRecordsExportView(APIView):
+    permission_classes = [IsAdminOrStaff]
+
+    def get(self, request):
+        camp = _active_camp()
+        _, _, matches, _, _ = _camp_data(camp)
+        reviews = [_match_review_summary(match) for match in matches]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "评委记录汇总"
+        sheet.append(["轮次", "会场", "场次", "评委", "辩位", "学员", "分数", "发言记录", "评委反馈", "最终正方票", "最终反方票", "最佳辩手票"])
+        for review in reviews:
+            for ballot in review["ballots"]:
+                best_votes = {vote["position"]: vote["weight"] for vote in ballot["best_speaker_votes"]}
+                for score in ballot["position_scores"]:
+                    sheet.append([
+                        f"积分赛{review['round_number']}",
+                        review["venue_name"],
+                        review["sequence"],
+                        ballot["judge_name"],
+                        score["label"],
+                        score["speaker"],
+                        score["score"],
+                        score["speech_record"],
+                        score["judge_feedback"],
+                        ballot["affirmative_votes"],
+                        ballot["negative_votes"],
+                        best_votes.get(score["position"], ""),
+                    ])
+        return _workbook_response(workbook, "judge-records.xlsx")

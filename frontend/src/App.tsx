@@ -14,6 +14,8 @@ import {
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
 import {
+  apiCreateAssessmentAssignment,
+  apiCreateAssessmentVenue,
   apiCreateCamp,
   apiCreateCoach,
   apiCreateEnrollment,
@@ -24,12 +26,17 @@ import {
   apiCreateTeamFromNicknames,
   apiCreateUserAccount,
   apiCreateVenue,
+  apiDownloadGraduationExport,
+  apiDownloadOperationsExport,
+  apiGetCoachAssessments,
   apiGetCoachDashboard,
   apiGetJudgeMatches,
   apiGetOperationsDashboard,
   apiImportEnrollments,
   apiLogin,
   apiSubmitCoachPositions,
+  apiSubmitEntranceScore,
+  apiSubmitGraduationEvaluation,
   apiSubmitJudgeBallot,
   apiUpdateEnrollment,
   apiUpdateRoundTopic,
@@ -37,7 +44,7 @@ import {
   apiUpdateUserAccount,
   apiVerifyMatch,
 } from './lib/api'
-import type { ApiUser, CoachDashboard, EnrollmentImportPreview, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
+import type { ApiUser, CoachAssessmentDashboard, CoachDashboard, EnrollmentImportPreview, JudgeBallotPayload, JudgeMatch, OperationsDashboard } from './lib/api'
 
 const demoAccounts = [
   { role: '管理员', username: 'admin', password: 'admin123456' },
@@ -76,6 +83,7 @@ type StaffSectionKey =
   | 'overview'
   | 'camp-students'
   | 'teams-coaches'
+  | 'assessment'
   | 'schedule'
   | 'position-progress'
   | 'review'
@@ -92,6 +100,7 @@ const staffSections: Array<{
   { key: 'overview', title: '总览', description: '查看当前营期准备状态和待处理事项。', icon: BarChart3 },
   { key: 'camp-students', title: '营期与学员', description: '创建营期、导入学员、查看本期学员名单。', icon: UsersRound },
   { key: 'teams-coaches', title: '队伍与教练', description: '按昵称建队、绑定教练、维护队伍信息。', icon: Swords },
+  { key: 'assessment', title: '入营测评', description: '设置测评会场、分配教练和学员。', icon: Medal },
   { key: 'schedule', title: '积分赛编排', description: '设置辩题、会场、评委和三轮积分赛对阵。', icon: ClipboardCheck },
   { key: 'position-progress', title: '辩位录入进度', description: '查看教练是否完成每场比赛的辩位录入。', icon: ShieldCheck },
   { key: 'review', title: '积分核对 / 赛事记录', description: '汇总评委提交情况、分数、投票和最佳辩手票。', icon: ClipboardCheck },
@@ -110,6 +119,7 @@ function App() {
   const [judgeReloadKey, setJudgeReloadKey] = useState(0)
   const [judgeError, setJudgeError] = useState('')
   const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | null>(null)
+  const [coachAssessments, setCoachAssessments] = useState<CoachAssessmentDashboard | null>(null)
   const [coachReloadKey, setCoachReloadKey] = useState(0)
   const [coachError, setCoachError] = useState('')
   const [username, setUsername] = useState('admin')
@@ -178,15 +188,17 @@ function App() {
   useEffect(() => {
     if (!token || !user || user.role !== 'coach') {
       setCoachDashboard(null)
+      setCoachAssessments(null)
       setCoachError('')
       return
     }
 
     let isMounted = true
-    apiGetCoachDashboard(token)
-      .then((data) => {
+    Promise.all([apiGetCoachDashboard(token), apiGetCoachAssessments(token)])
+      .then(([dashboard, assessments]) => {
         if (isMounted) {
-          setCoachDashboard(data)
+          setCoachDashboard(dashboard)
+          setCoachAssessments(assessments)
           setCoachError('')
         }
       })
@@ -240,6 +252,7 @@ function App() {
                   setOperations(null)
                   setJudgeMatches([])
                   setCoachDashboard(null)
+                  setCoachAssessments(null)
                 }}
               >
                 <LogOut data-icon="inline-start" />
@@ -269,6 +282,7 @@ function App() {
           ) : user.role === 'coach' ? (
             <CoachWorkspace
               dashboard={coachDashboard}
+              assessments={coachAssessments}
               error={coachError}
               token={token}
               onRefresh={() => setCoachReloadKey((value) => value + 1)}
@@ -473,6 +487,10 @@ function StaffWorkspace({
   const [selectedReviewId, setSelectedReviewId] = useState<number | null>(null)
   const [verificationNote, setVerificationNote] = useState('')
   const [bestSpeakerOverride, setBestSpeakerOverride] = useState('')
+  const [assessmentVenueName, setAssessmentVenueName] = useState('')
+  const [assessmentCoachIds, setAssessmentCoachIds] = useState<string[]>([])
+  const [assessmentVenueId, setAssessmentVenueId] = useState('')
+  const [assessmentEnrollmentId, setAssessmentEnrollmentId] = useState('')
 
   const selectedTopicRound = operations?.rounds.find((round) => String(round.id) === topicRoundId)
   const venuesForSelectedRound = operations?.venues.filter(
@@ -538,7 +556,9 @@ function StaffWorkspace({
     if (operations.coaches[0] && !teamCoachId) setTeamCoachId(String(operations.coaches[0].id))
     if (operations.coaches[0] && !bulkTeamCoachId) setBulkTeamCoachId(String(operations.coaches[0].id))
     if (operations.teams[0] && !studentTeamId) setStudentTeamId(String(operations.teams[0].id))
-  }, [affirmativeTeamId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
+    if (operations.assessmentVenues[0] && !assessmentVenueId) setAssessmentVenueId(String(operations.assessmentVenues[0].id))
+    if (operations.enrollments[0] && !assessmentEnrollmentId) setAssessmentEnrollmentId(String(operations.enrollments[0].id))
+  }, [affirmativeTeamId, assessmentEnrollmentId, assessmentVenueId, bulkTeamCoachId, matchRoundId, matchSequence, matchVenueId, negativeTeamId, operations, studentTeamId, teamCoachId, topicRoundId, venueRoundId])
 
   useEffect(() => {
     if (selectedTopicRound) setTopic(selectedTopicRound.topic)
@@ -567,6 +587,27 @@ function StaffWorkspace({
       setVenueName('')
       setVenueJudgeIds([])
       return '会场已创建并完成评委分配。'
+    })
+  }
+
+  async function submitAssessmentVenue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const activeCamp = operations?.activeCamp
+    if (!token || !activeCamp || !assessmentVenueName) return
+    await save(async () => {
+      await apiCreateAssessmentVenue(token, activeCamp.id, assessmentVenueName, assessmentCoachIds.map(Number))
+      setAssessmentVenueName('')
+      setAssessmentCoachIds([])
+      return '测评会场已创建。'
+    })
+  }
+
+  async function submitAssessmentAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || !assessmentVenueId || !assessmentEnrollmentId) return
+    await save(async () => {
+      await apiCreateAssessmentAssignment(token, Number(assessmentVenueId), Number(assessmentEnrollmentId))
+      return '学员已分配到测评会场。'
     })
   }
 
@@ -600,6 +641,20 @@ function StaffWorkspace({
         best_speaker_override: bestSpeakerOverride ? Number(bestSpeakerOverride) : null,
       })
       return isVerified ? '比赛已标记为核验完成。' : '比赛已取消核验。'
+    })
+  }
+
+  async function downloadExport(kind: 'team-rankings' | 'student-stats' | 'judge-records', filename: string) {
+    if (!token) return
+    await save(async () => {
+      const blob = await apiDownloadOperationsExport(token, kind)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+      URL.revokeObjectURL(url)
+      return '导出文件已生成。'
     })
   }
 
@@ -1118,6 +1173,108 @@ function StaffWorkspace({
               </div>
             </CardContent>
           </Card>
+        ) : null}
+
+        {activeSection === 'assessment' ? (
+          <>
+            <div className="grid gap-5 xl:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>创建测评会场</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form className="grid gap-3" onSubmit={submitAssessmentVenue}>
+                    <input
+                      className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                      placeholder="测评会场名称，如 A 测评室"
+                      value={assessmentVenueName}
+                      onChange={(event) => setAssessmentVenueName(event.target.value)}
+                    />
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {operations?.coaches.map((coach) => (
+                        <label key={coach.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+                          <input
+                            checked={assessmentCoachIds.includes(String(coach.id))}
+                            type="checkbox"
+                            onChange={(event) => {
+                              setAssessmentCoachIds((current) =>
+                                event.target.checked
+                                  ? [...current, String(coach.id)]
+                                  : current.filter((id) => id !== String(coach.id)),
+                              )
+                            }}
+                          />
+                          {coach.name}
+                        </label>
+                      ))}
+                    </div>
+                    <Button type="submit" disabled={isSaving || !assessmentVenueName}>创建测评会场</Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>分配测评学员</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form className="grid gap-3" onSubmit={submitAssessmentAssignment}>
+                    <select
+                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                      value={assessmentVenueId}
+                      onChange={(event) => setAssessmentVenueId(event.target.value)}
+                    >
+                      <option value="">选择测评会场</option>
+                      {operations?.assessmentVenues.map((venue) => (
+                        <option key={venue.id} value={venue.id}>{venue.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+                      value={assessmentEnrollmentId}
+                      onChange={(event) => setAssessmentEnrollmentId(event.target.value)}
+                    >
+                      <option value="">选择学员</option>
+                      {operations?.enrollments.map((enrollment) => (
+                        <option key={enrollment.id} value={enrollment.id}>
+                          {enrollment.nickname} · {enrollment.student_name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="submit" disabled={isSaving || !assessmentVenueId || !assessmentEnrollmentId}>分配学员</Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>测评会场与分配情况</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3">
+                  {operations?.assessmentVenues.map((venue) => {
+                    const assignments = operations.assessmentAssignments.filter((item) => item.venue === venue.id)
+                    return (
+                      <div key={venue.id} className="rounded-md border border-slate-200 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="font-semibold">{venue.name}</p>
+                          <p className="text-xs text-slate-500">教练：{venue.coach_names.join('、') || '未分配'}</p>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {assignments.length ? assignments.map((assignment) => (
+                            <span key={assignment.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                              {assignment.enrollment_nickname} · {assignment.student_name}
+                            </span>
+                          )) : <span className="text-xs text-slate-400">暂无学员</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </>
         ) : null}
 
         {activeSection === 'schedule' ? (
@@ -1679,13 +1836,24 @@ function StaffWorkspace({
 
         {activeSection === 'rankings' ? (
         <>
+        <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <Button type="button" variant="outline" onClick={() => downloadExport('team-rankings', '队伍积分榜.xlsx')}>
+            导出队伍积分榜
+          </Button>
+          <Button type="button" variant="outline" onClick={() => downloadExport('student-stats', '学员个人赛事数据.xlsx')}>
+            导出学员个人数据
+          </Button>
+          <Button type="button" variant="outline" onClick={() => downloadExport('judge-records', '评委记录汇总.xlsx')}>
+            导出评委记录汇总
+          </Button>
+        </div>
         <Card>
           <CardHeader>
             <CardTitle>队伍积分榜</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-sm">
+              <table className="w-full min-w-[920px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
                     <th className="py-2 pr-4 font-medium">排名</th>
@@ -1702,7 +1870,12 @@ function StaffWorkspace({
                       <td className="py-3 pr-4 font-semibold">{index + 1}</td>
                       <td className="py-3 pr-4 font-semibold">{team.team_name}</td>
                       {team.round_scores.map((round) => (
-                        <td key={round.round_number} className="py-3 pr-4">{round.score.toFixed(2)}</td>
+                        <td key={round.round_number} className="py-3 pr-4">
+                          <p className="font-semibold">{round.score.toFixed(2)}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            辩位 {round.position_score.toFixed(1)} · 投票 {round.votes}
+                          </p>
+                        </td>
                       ))}
                       <td className="py-3 pr-4 font-semibold">{team.total.toFixed(2)}</td>
                     </tr>
@@ -1723,6 +1896,7 @@ function StaffWorkspace({
                   <tr className="border-b border-slate-200 text-left text-slate-500">
                     <th className="py-2 pr-4 font-medium">学员</th>
                     <th className="py-2 pr-4 font-medium">真实姓名</th>
+                    <th className="py-2 pr-4 font-medium">队伍</th>
                     <th className="py-2 pr-4 font-medium">轮次</th>
                     <th className="py-2 pr-4 font-medium">辩位</th>
                     <th className="py-2 pr-4 font-medium">平均分</th>
@@ -1734,6 +1908,7 @@ function StaffWorkspace({
                     <tr key={stat.position} className="border-b border-slate-100">
                       <td className="py-3 pr-4 font-semibold">{stat.speaker}</td>
                       <td className="py-3 pr-4">{stat.student_name}</td>
+                      <td className="py-3 pr-4">{stat.team_name}</td>
                       <td className="py-3 pr-4">积分赛 {stat.round_number}</td>
                       <td className={stat.side === 'affirmative' ? 'py-3 pr-4 font-medium text-red-700' : 'py-3 pr-4 font-medium text-blue-700'}>
                         {stat.label}
@@ -1904,11 +2079,13 @@ function StaffWorkspace({
 
 function CoachWorkspace({
   dashboard,
+  assessments,
   error,
   token,
   onRefresh,
 }: {
   dashboard: CoachDashboard | null
+  assessments: CoachAssessmentDashboard | null
   error: string
   token: string | null
   onRefresh: () => void
@@ -1948,6 +2125,8 @@ function CoachWorkspace({
         </CardContent>
       </Card>
 
+      <CoachAssessmentPanel assessments={assessments} token={token} onRefresh={onRefresh} />
+
       <div className="grid gap-5">
         {dashboard?.matches.length ? (
           dashboard.matches.map((match) => (
@@ -1968,6 +2147,266 @@ function CoachWorkspace({
         )}
       </div>
     </section>
+  )
+}
+
+const emptyFiveScores = {
+  viewpoint: '3',
+  personality: '3',
+  emotion: '3',
+  reasoning: '3',
+  clash: '3',
+}
+
+function CoachAssessmentPanel({
+  assessments,
+  token,
+  onRefresh,
+}: {
+  assessments: CoachAssessmentDashboard | null
+  token: string | null
+  onRefresh: () => void
+}) {
+  const [entranceForms, setEntranceForms] = useState<Record<number, typeof emptyFiveScores & { note: string }>>({})
+  const [graduationForms, setGraduationForms] = useState<Record<number, typeof emptyFiveScores & {
+    viewpoint_text: string
+    personality_text: string
+    emotion_text: string
+    reasoning_text: string
+    clash_text: string
+    message: string
+  }>>({})
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!assessments) return
+    setEntranceForms(
+      Object.fromEntries(
+        assessments.entranceAssignments.map((assignment) => [
+          assignment.id,
+          {
+            ...emptyFiveScores,
+            viewpoint: assignment.score?.viewpoint ?? '3',
+            personality: assignment.score?.personality ?? '3',
+            emotion: assignment.score?.emotion ?? '3',
+            reasoning: assignment.score?.reasoning ?? '3',
+            clash: assignment.score?.clash ?? '3',
+            note: assignment.score?.note ?? '',
+          },
+        ]),
+      ),
+    )
+    setGraduationForms(
+      Object.fromEntries(
+        assessments.graduationMembers.map((member) => [
+          member.enrollment,
+          {
+            ...emptyFiveScores,
+            viewpoint: member.evaluation?.viewpoint ?? '3',
+            personality: member.evaluation?.personality ?? '3',
+            emotion: member.evaluation?.emotion ?? '3',
+            reasoning: member.evaluation?.reasoning ?? '3',
+            clash: member.evaluation?.clash ?? '3',
+            viewpoint_text: member.evaluation?.viewpoint_text ?? '',
+            personality_text: member.evaluation?.personality_text ?? '',
+            emotion_text: member.evaluation?.emotion_text ?? '',
+            reasoning_text: member.evaluation?.reasoning_text ?? '',
+            clash_text: member.evaluation?.clash_text ?? '',
+            message: member.evaluation?.message ?? '',
+          },
+        ]),
+      ),
+    )
+  }, [assessments])
+
+  function updateEntrance(id: number, field: keyof (typeof emptyFiveScores & { note: string }), value: string) {
+    setEntranceForms((current) => ({ ...current, [id]: { ...current[id], [field]: value } }))
+  }
+
+  function updateGraduation(id: number, field: keyof (typeof emptyFiveScores & {
+    viewpoint_text: string
+    personality_text: string
+    emotion_text: string
+    reasoning_text: string
+    clash_text: string
+    message: string
+  }), value: string) {
+    setGraduationForms((current) => ({ ...current, [id]: { ...current[id], [field]: value } }))
+  }
+
+  async function saveEntrance(id: number) {
+    if (!token) return
+    setError('')
+    setMessage('')
+    try {
+      await apiSubmitEntranceScore(token, id, entranceForms[id])
+      setMessage('入营测评分数已保存。')
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败。')
+    }
+  }
+
+  async function saveGraduation(id: number) {
+    if (!token) return
+    setError('')
+    setMessage('')
+    try {
+      await apiSubmitGraduationEvaluation(token, id, graduationForms[id])
+      setMessage('结营评定已保存。')
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败。')
+    }
+  }
+
+  async function downloadGraduation(id: number, nickname: string) {
+    if (!token) return
+    setError('')
+    setMessage('')
+    try {
+      const blob = await apiDownloadGraduationExport(token, id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${nickname}-结营评定图.png`
+      link.click()
+      URL.revokeObjectURL(url)
+      setMessage('结营评定图已生成。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导出失败。')
+    }
+  }
+
+
+  const dimensionLabels: Array<[keyof typeof emptyFiveScores, string]> = [
+    ['viewpoint', '观点生产'],
+    ['personality', '个性张力'],
+    ['emotion', '情感传达'],
+    ['reasoning', '事理表述'],
+    ['clash', '攻防交锋'],
+  ]
+  type GraduationTextField = 'viewpoint_text' | 'personality_text' | 'emotion_text' | 'reasoning_text' | 'clash_text' | 'message'
+  const graduationTextFields: Array<[GraduationTextField, string]> = [
+    ['viewpoint_text', '观点生产评价'],
+    ['personality_text', '个性张力评价'],
+    ['emotion_text', '情感传达评价'],
+    ['reasoning_text', '事理表述评价'],
+    ['clash_text', '攻防交锋评价'],
+    ['message', '结营寄语'],
+  ]
+
+  return (
+    <div className="grid gap-5">
+      {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+      {message ? <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>入营测评打分</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3">
+            {assessments?.entranceAssignments.length ? assessments.entranceAssignments.map((assignment) => (
+              <div key={assignment.id} className="rounded-md border border-slate-200 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{assignment.nickname}</p>
+                    <p className="mt-1 text-xs text-slate-500">{assignment.student_name} · {assignment.venue_name}</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => saveEntrance(assignment.id)}>保存测评分</Button>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-5">
+                  {dimensionLabels.map(([field, label]) => (
+                    <label key={field} className="flex flex-col gap-2 text-xs font-medium text-slate-600">
+                      {label}
+                      <input
+                        className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-slate-400"
+                        max="5"
+                        min="1"
+                        step="0.5"
+                        type="number"
+                        value={entranceForms[assignment.id]?.[field] ?? '3'}
+                        onChange={(event) => updateEntrance(assignment.id, field, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <input
+                  className="mt-3 h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="测评备注"
+                  value={entranceForms[assignment.id]?.note ?? ''}
+                  onChange={(event) => updateEntrance(assignment.id, 'note', event.target.value)}
+                />
+              </div>
+            )) : <p className="text-sm text-slate-500">当前没有分配给你的入营测评学员。</p>}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>结营评分与评定图</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3">
+            {assessments?.graduationMembers.length ? assessments.graduationMembers.map((member) => (
+              <div key={member.enrollment} className="rounded-md border border-slate-200 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{member.nickname}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {member.student_name} · 初始五维：
+                      {member.entrance_average
+                        ? ` 观点${member.entrance_average.viewpoint} 个性${member.entrance_average.personality} 情感${member.entrance_average.emotion} 事理${member.entrance_average.reasoning} 攻防${member.entrance_average.clash}`
+                        : ' 暂无'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => saveGraduation(member.enrollment)}>保存评定</Button>
+                    <button
+                      className="inline-flex h-10 items-center rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      type="button"
+                      onClick={() => downloadGraduation(member.enrollment, member.nickname)}
+                    >
+                      导出评定图
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-5">
+                  {dimensionLabels.map(([field, label]) => (
+                    <label key={field} className="flex flex-col gap-2 text-xs font-medium text-slate-600">
+                      {label}
+                      <input
+                        className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-slate-400"
+                        max="5"
+                        min="1"
+                        step="0.5"
+                        type="number"
+                        value={graduationForms[member.enrollment]?.[field] ?? '3'}
+                        onChange={(event) => updateGraduation(member.enrollment, field, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {graduationTextFields.map(([field, label]) => (
+                    <textarea
+                      key={field}
+                      className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                      placeholder={label}
+                      value={graduationForms[member.enrollment]?.[field] ?? ''}
+                      onChange={(event) => updateGraduation(member.enrollment, field, event.target.value)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )) : <p className="text-sm text-slate-500">当前队伍暂无可评定学员。</p>}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 

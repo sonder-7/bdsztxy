@@ -182,15 +182,17 @@ export type OperationsDashboard = {
       }>
     }>
   }>
-  teamRankings: Array<{
-    team: number
-    team_name: string
-    round_scores: Array<{
-      round_number: number
-      score: number
-    }>
-    total: number
-  }>
+	  teamRankings: Array<{
+	    team: number
+	    team_name: string
+	    round_scores: Array<{
+	      round_number: number
+	      position_score: number
+	      votes: number
+	      score: number
+	    }>
+	    total: number
+	  }>
   studentHistories: Array<{
     student: number
     real_name: string
@@ -202,17 +204,86 @@ export type OperationsDashboard = {
       team_name: string | null
     }>
   }>
-  studentMatchStats: Array<{
+	  studentMatchStats: Array<{
     position: number
     speaker: string
-    student_name: string
-    team: number | null
-    round_number: number
+	    student_name: string
+	    team: number | null
+	    team_name: string
+	    round_number: number
     match: number
     side: 'affirmative' | 'negative'
     label: string
     average_score: number
-    best_speaker_votes: number
+	    best_speaker_votes: number
+	  }>
+	  assessmentVenues: Array<{
+	    id: number
+	    camp: number
+	    name: string
+	    coaches: number[]
+	    coach_names: string[]
+	  }>
+	  assessmentAssignments: Array<{
+	    id: number
+	    venue: number
+	    venue_name: string
+	    enrollment: number
+	    enrollment_nickname: string
+	    student_name: string
+	  }>
+	}
+
+export type FiveDimensionScores = {
+  viewpoint: string
+  personality: string
+  emotion: string
+  reasoning: string
+  clash: string
+}
+
+export type CoachAssessmentDashboard = {
+  entranceAssignments: Array<{
+    id: number
+    venue: number
+    venue_name: string
+    enrollment: number
+    nickname: string
+    student_name: string
+    score: null | (FiveDimensionScores & {
+      id: number
+      assignment: number
+      coach: number
+      coach_name: string
+      note: string
+    })
+  }>
+  graduationMembers: Array<{
+    enrollment: number
+    nickname: string
+    student_name: string
+    team_name: string
+    entrance_average: null | {
+      viewpoint: number
+      personality: number
+      emotion: number
+      reasoning: number
+      clash: number
+    }
+    evaluation: null | (FiveDimensionScores & {
+      id: number
+      enrollment: number
+      enrollment_nickname: string
+      coach: number
+      coach_name: string
+      viewpoint_text: string
+      personality_text: string
+      emotion_text: string
+      reasoning_text: string
+      clash_text: string
+      message: string
+      exported_image: string
+    })
   }>
 }
 
@@ -398,6 +469,20 @@ export async function apiGetCoachDashboard(token: string): Promise<CoachDashboar
   return response.json()
 }
 
+export async function apiGetCoachAssessments(token: string): Promise<CoachAssessmentDashboard> {
+  const response = await fetch(`${API_BASE_URL}/api/assessments/coach/`, {
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('无法读取测评与结营评定数据。')
+  }
+
+  return response.json()
+}
+
 async function apiWrite<T>(path: string, token: string, method: 'POST' | 'PATCH', body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -531,6 +616,14 @@ export async function apiCreateVenue(token: string, integralRound: number, name:
   })
 }
 
+export async function apiCreateAssessmentVenue(token: string, camp: number, name: string, coaches: number[]) {
+  return apiWrite('/api/assessments/venues/', token, 'POST', { camp, name, coaches })
+}
+
+export async function apiCreateAssessmentAssignment(token: string, venue: number, enrollment: number) {
+  return apiWrite('/api/assessments/assignments/', token, 'POST', { venue, enrollment })
+}
+
 export async function apiCreateMatch(
   token: string,
   payload: {
@@ -563,4 +656,47 @@ export async function apiSubmitCoachPositions(
   positions: Array<{ position_number: number; enrollment: number; coach_note: string }>,
 ) {
   return apiWrite<CoachDashboard['matches'][number]>(`/api/competitions/coach/matches/${matchId}/submit_positions/`, token, 'POST', { positions })
+}
+
+export async function apiSubmitEntranceScore(token: string, assignmentId: number, payload: FiveDimensionScores & { note: string }) {
+  return apiWrite(`/api/assessments/coach/${assignmentId}/score/`, token, 'POST', payload)
+}
+
+export async function apiSubmitGraduationEvaluation(
+  token: string,
+  enrollmentId: number,
+  payload: FiveDimensionScores & {
+    viewpoint_text: string
+    personality_text: string
+    emotion_text: string
+    reasoning_text: string
+    clash_text: string
+    message: string
+  },
+) {
+  return apiWrite(`/api/assessments/coach/${enrollmentId}/evaluate/`, token, 'POST', payload)
+}
+
+export async function apiDownloadOperationsExport(token: string, kind: 'team-rankings' | 'student-stats' | 'judge-records') {
+  const response = await fetch(`${API_BASE_URL}/api/operations/exports/${kind}.xlsx`, {
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+  })
+  if (!response.ok) {
+    throw new Error('导出失败。')
+  }
+  return response.blob()
+}
+
+export async function apiDownloadGraduationExport(token: string, enrollmentId: number) {
+  const response = await fetch(`${API_BASE_URL}/api/assessments/coach/${enrollmentId}/export/`, {
+    headers: {
+      Authorization: `Token ${token}`,
+    },
+  })
+  if (!response.ok) {
+    throw new Error('导出评定图失败。')
+  }
+  return response.blob()
 }

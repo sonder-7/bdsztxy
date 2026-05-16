@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/camps/', include('camps.urls')),
     path('api/competitions/', include('competitions.urls')),
     path('api/operations/', include('operations.urls')),
+    path('api/assessments/', include('assessments.urls')),
 ]
 
 if settings.DEBUG:
