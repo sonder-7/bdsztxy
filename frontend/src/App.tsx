@@ -81,13 +81,16 @@ const roleModules: Record<string, Array<{ title: string; description: string; ic
 
 type StaffSectionKey =
   | 'overview'
+  | 'camp-management'
   | 'camp-students'
+  | 'student-library'
   | 'teams-coaches'
   | 'assessment'
   | 'schedule'
   | 'position-progress'
   | 'review'
   | 'rankings'
+  | 'graduation'
   | 'system'
 
 const staffSections: Array<{
@@ -95,17 +98,21 @@ const staffSections: Array<{
   title: string
   description: string
   icon: typeof ShieldCheck
+  group: 'global' | 'camp'
   adminOnly?: boolean
 }> = [
-  { key: 'overview', title: '总览', description: '查看当前营期准备状态和待处理事项。', icon: BarChart3 },
-  { key: 'camp-students', title: '营期与学员', description: '创建营期、导入学员、查看本期学员名单。', icon: UsersRound },
-  { key: 'teams-coaches', title: '队伍与教练', description: '按昵称建队、绑定教练、维护队伍信息。', icon: Swords },
-  { key: 'assessment', title: '入营测评', description: '设置测评会场、分配教练和学员。', icon: Medal },
-  { key: 'schedule', title: '积分赛编排', description: '设置辩题、会场、评委和三轮积分赛对阵。', icon: ClipboardCheck },
-  { key: 'position-progress', title: '辩位录入进度', description: '查看教练是否完成每场比赛的辩位录入。', icon: ShieldCheck },
-  { key: 'review', title: '积分核对 / 赛事记录', description: '汇总评委提交情况、分数、投票和最佳辩手票。', icon: ClipboardCheck },
-  { key: 'rankings', title: '排名与数据', description: '查看队伍积分榜和当前学员赛事数据。', icon: BarChart3 },
-  { key: 'system', title: '系统管理', description: '创建和停用工作人员、教练、评委、管理员账号。', icon: UsersRound, adminOnly: true },
+  { key: 'camp-management', title: '营期管理', description: '创建营期、查看全部营期，并维护营期基础信息。', icon: ShieldCheck, group: 'global', adminOnly: true },
+  { key: 'system', title: '人员与账号', description: '创建和停用工作人员、教练、评委、管理员账号。', icon: UsersRound, group: 'global', adminOnly: true },
+  { key: 'student-library', title: '总学员库', description: '查看跨营期学员、真实姓名、电话和历期昵称。', icon: UsersRound, group: 'global' },
+  { key: 'overview', title: '营期总览', description: '查看当前营期准备状态和待处理事项。', icon: BarChart3, group: 'camp' },
+  { key: 'camp-students', title: '本期学员', description: '导入本期学员、查看名单和归队状态。', icon: UsersRound, group: 'camp' },
+  { key: 'teams-coaches', title: '本期队伍', description: '按昵称建队、绑定教练、维护队伍信息。', icon: Swords, group: 'camp' },
+  { key: 'assessment', title: '入营测评', description: '设置测评会场、分配教练和学员。', icon: Medal, group: 'camp' },
+  { key: 'schedule', title: '积分赛编排', description: '设置辩题、会场、评委和三轮积分赛对阵。', icon: ClipboardCheck, group: 'camp' },
+  { key: 'position-progress', title: '辩位录入进度', description: '查看教练是否完成每场比赛的辩位录入。', icon: ShieldCheck, group: 'camp' },
+  { key: 'review', title: '积分核对', description: '汇总评委提交情况、分数、投票和最佳辩手票。', icon: ClipboardCheck, group: 'camp' },
+  { key: 'rankings', title: '排名与报表', description: '查看积分榜、学员赛事数据，并导出报表。', icon: BarChart3, group: 'camp' },
+  { key: 'graduation', title: '结营评定', description: '查看结营评定完成情况，后续支持批量导出。', icon: Medal, group: 'camp' },
 ]
 
 function App() {
@@ -498,6 +505,8 @@ function StaffWorkspace({
   ) ?? []
   const visibleSections = staffSections.filter((section) => isAdmin || !section.adminOnly)
   const currentSection = visibleSections.find((section) => section.key === activeSection) ?? visibleSections[0]
+  const globalSections = visibleSections.filter((section) => section.group === 'global')
+  const campSections = visibleSections.filter((section) => section.group === 'camp')
   const pendingReviewCount = operations?.matchReviews.filter((review) => !review.is_verified).length ?? 0
   const pendingPositionCount =
     operations?.matchReviews.filter(
@@ -826,26 +835,34 @@ function StaffWorkspace({
   return (
     <section className="grid flex-1 gap-5 py-8 lg:grid-cols-[260px_1fr]">
       <aside className="rounded-lg border border-slate-200 bg-white p-4">
-        <nav className="flex flex-col gap-2">
-          {visibleSections.map((item) => {
-            const Icon = item.icon
-            const isActive = item.key === currentSection.key
-            return (
-              <button
-                key={item.title}
-                className={
-                  isActive
-                    ? 'flex items-center gap-3 rounded-md bg-slate-950 px-3 py-2 text-left text-sm font-medium text-white'
-                    : 'flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100'
-                }
-                type="button"
-                onClick={() => setActiveSection(item.key)}
-              >
-                <Icon className="size-4" />
-                {item.title}
-              </button>
-            )
-          })}
+        <nav className="flex flex-col gap-5">
+          {[
+            ['全局管理', globalSections],
+            ['当前营期运营', campSections],
+          ].map(([groupTitle, sections]) => (
+            <div key={groupTitle as string} className="grid gap-2">
+              <p className="px-3 text-xs font-semibold text-slate-400">{groupTitle as string}</p>
+              {(sections as typeof visibleSections).map((item) => {
+                const Icon = item.icon
+                const isActive = item.key === currentSection.key
+                return (
+                  <button
+                    key={item.title}
+                    className={
+                      isActive
+                        ? 'flex items-center gap-3 rounded-md bg-slate-950 px-3 py-2 text-left text-sm font-medium text-white'
+                        : 'flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100'
+                    }
+                    type="button"
+                    onClick={() => setActiveSection(item.key)}
+                  >
+                    <Icon className="size-4" />
+                    {item.title}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </nav>
       </aside>
 
@@ -854,6 +871,18 @@ function StaffWorkspace({
           <h2 className="text-xl font-semibold tracking-normal">{currentSection.title}</h2>
           <p className="mt-2 text-sm text-slate-500">{currentSection.description}</p>
         </div>
+
+        {currentSection.group === 'camp' ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+            <div>
+              <p className="text-xs font-medium text-slate-500">当前营期</p>
+              <p className="mt-1 text-sm font-semibold">{operations?.activeCamp?.name ?? '暂无营期'}</p>
+            </div>
+            <span className="rounded-md bg-slate-100 px-3 py-1 text-xs text-slate-600">
+              跨营期数据请到左侧“全局管理”
+            </span>
+          </div>
+        ) : null}
 
         {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
         {formError ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</p> : null}
@@ -892,9 +921,9 @@ function StaffWorkspace({
           </>
         ) : null}
 
-        {activeSection === 'camp-students' || activeSection === 'system' ? (
+        {activeSection === 'camp-management' || activeSection === 'system' ? (
           <div className="grid gap-5 xl:grid-cols-2">
-          {activeSection === 'camp-students' ? (
+          {activeSection === 'camp-management' ? (
             <Card>
             <CardHeader>
               <CardTitle>创建营期</CardTitle>
@@ -1925,6 +1954,30 @@ function StaffWorkspace({
         </>
         ) : null}
 
+        {activeSection === 'graduation' ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>结营评定完成情况</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-2">
+                {operations?.teams.map((team) => {
+                  const members = operations.enrollments.filter((enrollment) => enrollment.team === team.id)
+                  return (
+                    <div key={team.id} className="rounded-md border border-slate-200 px-4 py-3">
+                      <p className="font-semibold">{team.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">教练：{team.coach_name} · 队员：{members.length} 人</p>
+                      <p className="mt-3 text-xs leading-5 text-slate-500">
+                        结营评分、文字评价和评定图导出目前由教练端完成；这里作为运营侧完成情况入口，后续接入批量导出和完成度统计。
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {activeSection === 'teams-coaches' ? (
         <>
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
@@ -2037,6 +2090,19 @@ function StaffWorkspace({
             </div>
           </CardContent>
         </Card>
+        </>
+        ) : null}
+
+        {activeSection === 'student-library' ? (
+        <>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <input
+            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
+            placeholder="搜索真实姓名、电话或历期昵称"
+            value={studentSearch}
+            onChange={(event) => setStudentSearch(event.target.value)}
+          />
+        </div>
         <Card>
           <CardHeader>
             <CardTitle>总学员库</CardTitle>
